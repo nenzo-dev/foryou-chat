@@ -6,6 +6,7 @@ import { watchSeen, statusOf } from '../lib/seen.js';
 import { createRoom, joinRoom } from '../lib/rooms.js';
 import { initials, timeAgo, escapeHtml, debounce } from '../lib/util.js';
 import { openModal, closeModal, toast } from '../lib/ui.js';
+import { ICON } from '../lib/icons.js';
 import { state } from '../state.js';
 
 let seenMap = {};
@@ -84,7 +85,7 @@ export function mountChatList(root) {
       const online = r.type === 'dm' && seenMap[r.otherId] && statusOf(seenMap[r.otherId].lastSeen).online;
       const avatar = r.avatarPath
         ? `<img class="avatar" src="${escapeHtml(avatarUrl(r.avatarPath))}" alt="">`
-        : `<div class="avatar" style="background:${escapeHtml((r.type === 'dm' ? r.avatarColor : null) || '#3b82c4')}">${r.type === 'room' ? '&#128101;' : escapeHtml(initials(r.name))}</div>`;
+        : `<div class="avatar" style="background:${escapeHtml((r.type === 'dm' ? r.avatarColor : null) || '#3b82c4')}">${r.type === 'room' ? ICON.people : escapeHtml(initials(r.name))}</div>`;
       return `
       <div class="list-item" data-href="${href}" data-id="${r.type}:${r.id}">
         <div style="position:relative">${avatar}${online ? '<span class="dot-online"></span>' : ''}</div>

@@ -11,6 +11,7 @@ import { VoiceRecorder, MIN_VOICE_SECONDS, extensionFor } from '../lib/voice.js'
 import { renderTicks, renderReplyQuote, renderReactionChips, attachSwipeReply, attachReactionPicker, jumpToMessage } from '../lib/msgui.js';
 import { startDirectCall } from './callui.js';
 import { toast, openModal } from '../lib/ui.js';
+import { ICON } from '../lib/icons.js';
 import { state } from '../state.js';
 
 export async function mountChat(root, conversationId) {
@@ -30,13 +31,13 @@ export async function mountChat(root, conversationId) {
 
   root.innerHTML = `
     <div class="thread-head">
-      <button class="back-btn" id="ch-back">&larr;</button>
+      <button class="back-btn" id="ch-back">${ICON.back}</button>
       <div class="avatar sm" id="ch-avatar"></div>
       <div class="info" id="ch-info">
         <div class="name">${escapeHtml(peer.full_name || peer.username)}</div>
         <div class="status" id="ch-status">&nbsp;</div>
       </div>
-      <button class="btn-icon" id="ch-call" title="Video call">&#128249;</button>
+      <button class="btn-icon" id="ch-call" title="Video call">${ICON.video}</button>
     </div>
     <div class="messages" id="ch-messages"></div>
     <div id="ch-reply-preview" class="reply-preview">
@@ -46,15 +47,15 @@ export async function mountChat(root, conversationId) {
     <div id="ch-record" class="record-indicator hidden"></div>
     <div id="ch-emoji" class="emoji-panel hidden"></div>
     <div class="composer">
-      <button class="btn-icon" id="ch-emoji-btn" aria-label="Emoji">&#128512;</button>
+      <button class="btn-icon" id="ch-emoji-btn" aria-label="Emoji">${ICON.emoji}</button>
       <input type="file" id="ch-file" class="hidden" accept="image/*,application/pdf,.doc,.docx">
-      <button class="btn-icon" id="ch-attach" aria-label="Attach">&#128206;</button>
+      <button class="btn-icon" id="ch-attach" aria-label="Attach">${ICON.attach}</button>
       <div class="composer-input-wrap">
         <textarea id="ch-input" rows="1" placeholder="Message"></textarea>
-        <button class="ai-compose-btn" id="ch-ai" title="Shorten with AI" aria-label="Shorten with AI">&#10024;</button>
+        <button class="ai-compose-btn" id="ch-ai" title="Shorten with AI" aria-label="Shorten with AI">${ICON.sparkle}</button>
       </div>
-      <button class="btn-icon" id="ch-mic" aria-label="Voice message">&#127908;</button>
-      <button class="btn-icon send-btn" id="ch-send" aria-label="Send">&#10148;</button>
+      <button class="btn-icon" id="ch-mic" aria-label="Voice message">${ICON.mic}</button>
+      <button class="btn-icon send-btn" id="ch-send" aria-label="Send">${ICON.send}</button>
     </div>`;
 
   paintAvatar(root.querySelector('#ch-avatar'), peer);
@@ -201,9 +202,9 @@ export async function mountChat(root, conversationId) {
         const url = src && src.dataset.url;
         if (!url) { toast('Still loading that voice note…'); return; }
         audio = new Audio(url);
-        audio.addEventListener('ended', () => { btn.innerHTML = '&#9654;&#65039;'; });
+        audio.addEventListener('ended', () => { btn.innerHTML = ICON.play; });
       }
-      if (audio.paused) { audio.play(); btn.innerHTML = '&#10074;&#10074;'; } else { audio.pause(); btn.innerHTML = '&#9654;&#65039;'; }
+      if (audio.paused) { audio.play(); btn.innerHTML = ICON.pause; } else { audio.pause(); btn.innerHTML = ICON.play; }
     });
   }
 
@@ -267,7 +268,7 @@ export async function mountChat(root, conversationId) {
         recorder = new VoiceRecorder();
         await recorder.start();
       } catch (e) { toast(e.message || 'Could not start recording.'); recorder = null; return; }
-      micBtn.innerHTML = '&#9209;&#65039;';
+      micBtn.innerHTML = ICON.stop;
       recordBar.classList.remove('hidden');
       const paint = () => { recordBar.innerHTML = `<span class="rec-dot"></span> Recording… ${recorder.seconds().toFixed(0)}s <button class="btn btn-ghost btn-sm" id="ch-rec-cancel" style="margin-left:auto">Cancel</button>`; recordBar.querySelector('#ch-rec-cancel').onclick = cancelRecording; };
       paint();
@@ -279,13 +280,13 @@ export async function mountChat(root, conversationId) {
       recorder = null;
       clearInterval(recTimer);
       recordBar.classList.add('hidden');
-      micBtn.innerHTML = '&#127908;';
+      micBtn.innerHTML = ICON.mic;
     }
 
     async function finishRecording() {
       clearInterval(recTimer);
       recordBar.classList.add('hidden');
-      micBtn.innerHTML = '&#127908;';
+      micBtn.innerHTML = ICON.mic;
       const r = recorder; recorder = null;
       let result;
       try { result = await r.stop(); } catch { return; }
@@ -346,14 +347,14 @@ function renderAttachment(att, msgId) {
     const peaks = Array.isArray(att.peaks) ? att.peaks : [];
     const bars = (peaks.length ? peaks : Array(28).fill(0.3)).map((v) => `<i style="height:${Math.round(v * 24) + 4}px"></i>`).join('');
     return `<div class="voice-msg" id="voice-${escapeHtml(msgId)}">
-      <button class="vplay" type="button">&#9654;&#65039;</button>
+      <button class="vplay" type="button">${ICON.play}</button>
       <div class="vbars">${bars}</div>
       <span class="vtime">${att.duration ? Math.round(att.duration) + 's' : ''}</span>
       <span data-attach-path="${escapeHtml(att.path)}" style="display:none"></span>
     </div>`;
   }
   return `<a class="msg-file" data-attach-path="${escapeHtml(att.path)}" href="#" onclick="event.preventDefault(); if(this.dataset.url) window.open(this.dataset.url,'_blank')">
-    &#128206; <span>${escapeHtml(att.name || 'File')}${att.size ? ` (${(att.size / 1024).toFixed(0)} KB)` : ''}</span>
+    <span class="file-ic">${ICON.file}</span> <span>${escapeHtml(att.name || 'File')}${att.size ? ` (${(att.size / 1024).toFixed(0)} KB)` : ''}</span>
   </a>`;
 }
 

@@ -9,6 +9,7 @@ import { renderReplyQuote, renderReactionChips, attachSwipeReply, attachReaction
 import { roomPeople, sendRoomMessage, inviteLink, resetInvite, leaveRoom, removeMember, deleteRoom, roomCalls, ROOM_FOLDER } from '../lib/rooms.js';
 import { startGroupCall } from './callui.js';
 import { toast, openModal, closeModal } from '../lib/ui.js';
+import { ICON } from '../lib/icons.js';
 import { state } from '../state.js';
 
 export async function mountRoom(root, roomId) {
@@ -21,13 +22,13 @@ export async function mountRoom(root, roomId) {
 
   root.innerHTML = `
     <div class="thread-head">
-      <button class="back-btn" id="rm-back">&larr;</button>
-      <div class="avatar sm" style="background:#3b82c4" id="rm-avatar">&#128101;</div>
+      <button class="back-btn" id="rm-back">${ICON.back}</button>
+      <div class="avatar sm" style="background:#3b82c4" id="rm-avatar">${ICON.people}</div>
       <div class="info" id="rm-info">
         <div class="name">${escapeHtml(room.name)}</div>
         <div class="status" id="rm-status">&nbsp;</div>
       </div>
-      <button class="btn-icon" id="rm-call" title="Group video call">&#128249;</button>
+      <button class="btn-icon" id="rm-call" title="Group video call">${ICON.video}</button>
     </div>
     <div id="rm-call-banner"></div>
     <div class="messages" id="rm-messages"></div>
@@ -38,15 +39,15 @@ export async function mountRoom(root, roomId) {
     <div id="rm-record" class="record-indicator hidden"></div>
     <div id="rm-emoji" class="emoji-panel hidden"></div>
     <div class="composer">
-      <button class="btn-icon" id="rm-emoji-btn" aria-label="Emoji">&#128512;</button>
+      <button class="btn-icon" id="rm-emoji-btn" aria-label="Emoji">${ICON.emoji}</button>
       <input type="file" id="rm-file" class="hidden" accept="image/*,application/pdf,.doc,.docx">
-      <button class="btn-icon" id="rm-attach" aria-label="Attach">&#128206;</button>
+      <button class="btn-icon" id="rm-attach" aria-label="Attach">${ICON.attach}</button>
       <div class="composer-input-wrap">
         <textarea id="rm-input" rows="1" placeholder="Message"></textarea>
-        <button class="ai-compose-btn" id="rm-ai" title="Shorten with AI" aria-label="Shorten with AI">&#10024;</button>
+        <button class="ai-compose-btn" id="rm-ai" title="Shorten with AI" aria-label="Shorten with AI">${ICON.sparkle}</button>
       </div>
-      <button class="btn-icon" id="rm-mic" aria-label="Voice message">&#127908;</button>
-      <button class="btn-icon send-btn" id="rm-send" aria-label="Send">&#10148;</button>
+      <button class="btn-icon" id="rm-mic" aria-label="Voice message">${ICON.mic}</button>
+      <button class="btn-icon send-btn" id="rm-send" aria-label="Send">${ICON.send}</button>
     </div>`;
 
   root.querySelector('#rm-back').onclick = () => { location.hash = '#/'; };
@@ -103,7 +104,7 @@ export async function mountRoom(root, roomId) {
       const counts = await roomCalls();
       const n = counts[roomId] || 0;
       banner.innerHTML = n
-        ? `<div class="install-banner" style="cursor:pointer" id="rm-join-call"><span>&#128249;</span><div class="txt">${n} ${n === 1 ? 'person is' : 'people are'} on a call now</div><button class="btn btn-gold btn-sm">Join</button></div>`
+        ? `<div class="install-banner" style="cursor:pointer" id="rm-join-call"><span class="file-ic" style="color:var(--gold)">${ICON.video}</span><div class="txt">${n} ${n === 1 ? 'person is' : 'people are'} on a call now</div><button class="btn btn-gold btn-sm">Join</button></div>`
         : '';
       const j = banner.querySelector('#rm-join-call');
       if (j) j.addEventListener('click', () => startGroupCall(room));
@@ -194,9 +195,9 @@ export async function mountRoom(root, roomId) {
         const url = src && src.dataset.url;
         if (!url) { toast('Still loading that voice note…'); return; }
         audio = new Audio(url);
-        audio.addEventListener('ended', () => { btn.innerHTML = '&#9654;&#65039;'; });
+        audio.addEventListener('ended', () => { btn.innerHTML = ICON.play; });
       }
-      if (audio.paused) { audio.play(); btn.innerHTML = '&#10074;&#10074;'; } else { audio.pause(); btn.innerHTML = '&#9654;&#65039;'; }
+      if (audio.paused) { audio.play(); btn.innerHTML = ICON.pause; } else { audio.pause(); btn.innerHTML = ICON.play; }
     });
   }
 
@@ -257,7 +258,7 @@ export async function mountRoom(root, roomId) {
       if (recorder) { await finishRecording(); return; }
       try { recorder = new VoiceRecorder(); await recorder.start(); }
       catch (e) { toast(e.message || 'Could not start recording.'); recorder = null; return; }
-      micBtn.innerHTML = '&#9209;&#65039;';
+      micBtn.innerHTML = ICON.stop;
       recordBar.classList.remove('hidden');
       const paint = () => { recordBar.innerHTML = `<span class="rec-dot"></span> Recording… ${recorder.seconds().toFixed(0)}s <button class="btn btn-ghost btn-sm" id="rm-rec-cancel" style="margin-left:auto">Cancel</button>`; recordBar.querySelector('#rm-rec-cancel').onclick = cancelRecording; };
       paint();
@@ -269,13 +270,13 @@ export async function mountRoom(root, roomId) {
       recorder = null;
       clearInterval(recTimer);
       recordBar.classList.add('hidden');
-      micBtn.innerHTML = '&#127908;';
+      micBtn.innerHTML = ICON.mic;
     }
 
     async function finishRecording() {
       clearInterval(recTimer);
       recordBar.classList.add('hidden');
-      micBtn.innerHTML = '&#127908;';
+      micBtn.innerHTML = ICON.mic;
       const r = recorder; recorder = null;
       let result;
       try { result = await r.stop(); } catch { return; }
@@ -378,13 +379,13 @@ function renderAttachment(att, msgId) {
     const peaks = Array.isArray(att.peaks) ? att.peaks : [];
     const bars = (peaks.length ? peaks : Array(28).fill(0.3)).map((v) => `<i style="height:${Math.round(v * 24) + 4}px"></i>`).join('');
     return `<div class="voice-msg" id="voice-${escapeHtml(msgId)}">
-      <button class="vplay" type="button">&#9654;&#65039;</button>
+      <button class="vplay" type="button">${ICON.play}</button>
       <div class="vbars">${bars}</div>
       <span class="vtime">${att.duration ? Math.round(att.duration) + 's' : ''}</span>
       <span data-attach-path="${escapeHtml(att.path)}" style="display:none"></span>
     </div>`;
   }
   return `<a class="msg-file" data-attach-path="${escapeHtml(att.path)}" href="#" onclick="event.preventDefault(); if(this.dataset.url) window.open(this.dataset.url,'_blank')">
-    &#128206; <span>${escapeHtml(att.name || 'File')}${att.size ? ` (${(att.size / 1024).toFixed(0)} KB)` : ''}</span>
+    <span class="file-ic">${ICON.file}</span> <span>${escapeHtml(att.name || 'File')}${att.size ? ` (${(att.size / 1024).toFixed(0)} KB)` : ''}</span>
   </a>`;
 }
