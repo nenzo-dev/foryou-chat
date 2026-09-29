@@ -36,7 +36,8 @@ Deno.serve(async (req) => {
   const text = String(payload.text || '').trim();
   if (!text) return json({ error: 'Nothing to shorten' }, 400);
 
-  const { data: cfg } = await db.from('system_config').select('ai_provider, ai_api_key, ai_model').eq('id', 1).single();
+  const { data: cfg, error: cfgErr } = await db.from('system_config').select('ai_provider, ai_api_key, ai_model').eq('id', 1).single();
+  if (cfgErr) return json({ error: 'Could not read AI settings: ' + cfgErr.message });
   if (!cfg || !cfg.ai_api_key || cfg.ai_provider !== 'anthropic') {
     return json({ error: 'AI is not set up yet — ask the configurer to add a key in Settings.' });
   }
