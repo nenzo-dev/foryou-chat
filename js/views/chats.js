@@ -5,7 +5,7 @@ import { onLive } from '../lib/live.js';
 import { watchSeen, statusOf } from '../lib/seen.js';
 import { createRoom, joinRoom } from '../lib/rooms.js';
 import { initials, timeAgo, escapeHtml, debounce } from '../lib/util.js';
-import { openModal, closeModal, toast } from '../lib/ui.js';
+import { openModal, closeModal, toast, friendlyError } from '../lib/ui.js';
 import { ICON } from '../lib/icons.js';
 import { state } from '../state.js';
 
@@ -67,7 +67,7 @@ export function mountChatList(root) {
       ].sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt));
       renderList(root.querySelector('#cl-search')?.value || '');
     } catch (e) {
-      root.querySelector('#cl-list').innerHTML = `<p class="muted center" style="padding:20px">${escapeHtml(e.message || 'Could not load chats.')}</p>`;
+      root.querySelector('#cl-list').innerHTML = `<p class="muted center" style="padding:20px">${escapeHtml(friendlyError(e))}</p>`;
     }
   }
 
@@ -129,7 +129,7 @@ async function openNewChatModal() {
     if (error) throw new Error(error.message);
     everyone = data || [];
     paint(everyone);
-  } catch (e) { result.innerHTML = `<p class="muted small">${escapeHtml(e.message || 'Could not load people.')}</p>`; }
+  } catch (e) { result.innerHTML = `<p class="muted small">${escapeHtml(friendlyError(e))}</p>`; }
 
   input.addEventListener('input', debounce(() => {
     const q = input.value.trim().toLowerCase().replace(/^@/, '');
@@ -149,7 +149,7 @@ async function openNewChatModal() {
         const cid = await rpc('ensure_conversation', { p_other: row.dataset.person });
         closeModal();
         location.hash = `#/chat/${encodeURIComponent(cid)}`;
-      } catch (e) { toast(e.message || 'Could not start that chat.'); }
+      } catch (e) { toast(friendlyError(e)); }
     }));
   }
 
@@ -175,7 +175,7 @@ function openNewRoomModal() {
       const room = await createRoom({ name, topic }, state.user);
       closeModal();
       location.hash = `#/room/${room.id}`;
-    } catch (e) { msg.className = 'form-msg err'; msg.textContent = e.message || 'Could not create the group.'; }
+    } catch (e) { msg.className = 'form-msg err'; msg.textContent = friendlyError(e); }
   });
 }
 
@@ -193,6 +193,6 @@ function openJoinCodeModal() {
       const roomId = await joinRoom(code);
       closeModal();
       location.hash = `#/room/${roomId}`;
-    } catch (e) { msg.className = 'form-msg err'; msg.textContent = e.message || 'That invite code did not work.'; }
+    } catch (e) { msg.className = 'form-msg err'; msg.textContent = friendlyError(e); }
   });
 }

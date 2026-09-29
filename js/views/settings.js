@@ -3,7 +3,7 @@
 import { supabase, rpc, avatarUrl, signOut } from '../lib/db.js';
 import { escapeHtml, initials, uid, readFileAsDataURL, formatBytes } from '../lib/util.js';
 import { notifySupported, notifyPermission, requestNotifyPermission } from '../lib/notify.js';
-import { toast } from '../lib/ui.js';
+import { toast, friendlyError } from '../lib/ui.js';
 import { state } from '../state.js';
 
 const SWATCHES = ['#F5C400', '#e0473c', '#2ea6a1', '#8a5cf6', '#f2823c', '#3b82c4', '#d94f8c', '#57a648'];
@@ -146,7 +146,7 @@ export async function mountSettings(root) {
       me.avatar_path = path; state.profile = me;
       paintAvatar();
       toast('Profile photo updated.');
-    } catch (e) { toast(e.message || 'Could not update your photo.'); }
+    } catch (e) { toast(friendlyError(e)); }
   }
 
   async function saveProfile() {
@@ -159,10 +159,16 @@ export async function mountSettings(root) {
     if (!/^[a-z0-9_.]{3,24}$/.test(username)) { msg.className = 'form-msg err'; msg.textContent = 'Username: 3-24 characters, lowercase letters, numbers, "." or "_" only.'; return; }
     try {
       const { error } = await supabase.from('profiles').update({ full_name, username, bio }).eq('id', me.id);
-      if (error) throw new Error(/username/i.test(error.message) ? 'That username is taken.' : error.message);
+      if (error) {
+        if (/username/i.test(error.message)) throw new Error('That username is taken.');
+        throw error;
+      }
       Object.assign(me, { full_name, username, bio }); state.profile = me;
       msg.className = 'form-msg ok'; msg.textContent = 'Saved.';
-    } catch (e) { msg.className = 'form-msg err'; msg.textContent = e.message || 'Could not save.'; }
+    } catch (e) {
+      msg.className = 'form-msg err';
+      msg.textContent = e.message === 'That username is taken.' ? e.message : friendlyError(e);
+    }
   }
 
   async function savePrefs(patch) {
@@ -201,7 +207,7 @@ export async function mountSettings(root) {
       root.querySelector('#st-ai-key').value = '';
       msg.className = 'form-msg ok'; msg.textContent = 'Saved.';
       paintAiStatus();
-    } catch (e) { msg.className = 'form-msg err'; msg.textContent = e.message || 'Could not save the key.'; }
+    } catch (e) { msg.className = 'form-msg err'; msg.textContent = friendlyError(e); }
   }
 
   function paintNotif() {

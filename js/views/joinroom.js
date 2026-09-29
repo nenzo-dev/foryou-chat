@@ -3,13 +3,13 @@
 // already a member (it just hands back the room id).
 import { invitePreview, joinRoom } from '../lib/rooms.js';
 import { escapeHtml } from '../lib/util.js';
-import { toast } from '../lib/ui.js';
+import { toast, friendlyError } from '../lib/ui.js';
 
 export async function mountJoinRoom(root, code) {
   root.innerHTML = `<div class="empty-state"><p class="muted">Loading invite…</p></div>`;
   let info;
   try { info = await invitePreview(code); }
-  catch (e) { root.innerHTML = `<div class="empty-state"><p>${escapeHtml(e.message || 'Could not load that invite.')}</p></div>`; return () => {}; }
+  catch (e) { root.innerHTML = `<div class="empty-state"><p>${escapeHtml(friendlyError(e))}</p></div>`; return () => {}; }
   if (!info) {
     root.innerHTML = `<div class="empty-state"><p>This invitation link is not valid any more.</p></div>`;
     return () => {};
@@ -26,7 +26,7 @@ export async function mountJoinRoom(root, code) {
 
   root.querySelector('#jr-join').addEventListener('click', async () => {
     try { const id = await joinRoom(code); location.hash = `#/room/${id}`; }
-    catch (e) { toast(e.message || 'Could not join that group.'); }
+    catch (e) { toast(friendlyError(e)); }
   });
 
   return () => {};

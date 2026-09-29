@@ -7,7 +7,7 @@ import { avatarUrl } from '../lib/db.js';
 import { ringUser } from '../lib/ring.js';
 import { startRing, stopRing } from '../lib/ringtone.js';
 import { notify } from '../lib/notify.js';
-import { toast } from '../lib/ui.js';
+import { toast, friendlyError } from '../lib/ui.js';
 import { initials, duration, escapeHtml } from '../lib/util.js';
 import { state } from '../state.js';
 
@@ -258,7 +258,7 @@ export async function startGroupCall(room) {
   root.querySelector('#gc-end').onclick = () => endGroupCall();
 
   try { await group.join(media.stream); renderGrid([]); }
-  catch (e) { toast(e.message || 'Could not join the call.'); closeOverlay(); }
+  catch (e) { toast(friendlyError(e)); closeOverlay(); }
 }
 
 function endGroupCall() {

@@ -3,6 +3,7 @@
 // app.js checks this right after fetching the profile and mounts this screen instead of buildShell().
 import { supabase, rpc, signOut } from '../lib/db.js';
 import { escapeHtml } from '../lib/util.js';
+import { friendlyError } from '../lib/ui.js';
 import { state } from '../state.js';
 
 export async function renderSuspended(root) {
@@ -39,7 +40,7 @@ export async function renderSuspended(root) {
         await rpc('submit_appeal', { p_message: text });
         renderSuspended(root);
       } catch (e) {
-        msg.className = 'form-msg err'; msg.textContent = e.message || 'Could not submit your appeal.';
+        msg.className = 'form-msg err'; msg.textContent = friendlyError(e);
         btn.disabled = false;
       }
     });

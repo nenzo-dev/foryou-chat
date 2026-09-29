@@ -5,10 +5,11 @@ import { onLive } from '../lib/live.js';
 import { escapeHtml, initials, fmtTime, uid } from '../lib/util.js';
 import { isEmojiOnly, EMOJI_GROUPS, recentEmoji, pushRecent } from '../lib/emoji.js';
 import { VoiceRecorder, MIN_VOICE_SECONDS, extensionFor } from '../lib/voice.js';
+import { explainMediaError } from '../lib/rtc.js';
 import { renderReplyQuote, renderReactionChips, attachSwipeReply, attachReactionPicker, jumpToMessage } from '../lib/msgui.js';
 import { roomPeople, sendRoomMessage, inviteLink, resetInvite, leaveRoom, removeMember, deleteRoom, roomCalls, ROOM_FOLDER } from '../lib/rooms.js';
 import { startGroupCall } from './callui.js';
-import { toast, openModal, closeModal } from '../lib/ui.js';
+import { toast, openModal, closeModal, friendlyError } from '../lib/ui.js';
 import { ICON } from '../lib/icons.js';
 import { state } from '../state.js';
 
@@ -156,12 +157,12 @@ export async function mountRoom(root, roomId) {
     if (!m) return;
     attachSwipeReply(rowEl, () => startReply(m));
     attachReactionPicker(rowEl, (emoji) => {
-      rpc('toggle_room_message_reaction', { p_message: id, p_emoji: emoji }).catch((e) => toast(e.message || 'Could not react.'));
+      rpc('toggle_room_message_reaction', { p_message: id, p_emoji: emoji }).catch((e) => toast(friendlyError(e)));
     });
     const quote = rowEl.querySelector('[data-reply-jump]');
     if (quote) quote.addEventListener('click', () => jumpToMessage(msgsEl, quote.dataset.replyJump));
     rowEl.querySelectorAll('.reaction-chip').forEach((chip) => chip.addEventListener('click', () => {
-      rpc('toggle_room_message_reaction', { p_message: id, p_emoji: chip.dataset.emoji }).catch((e) => toast(e.message || 'Could not react.'));
+      rpc('toggle_room_message_reaction', { p_message: id, p_emoji: chip.dataset.emoji }).catch((e) => toast(friendlyError(e)));
     }));
   }
 
@@ -230,7 +231,7 @@ export async function mountRoom(root, roomId) {
         if (fnErr) throw new Error(fnErr.message || 'Could not reach the AI.');
         if (data && data.error) { toast(data.error); return; }
         if (data && data.text) { input.value = data.text; input.dispatchEvent(new Event('input')); }
-      } catch (e) { toast(e.message || 'Could not shorten that message.'); }
+      } catch (e) { toast(friendlyError(e)); }
       finally { aiBtn.disabled = false; }
     });
 
@@ -257,7 +258,7 @@ export async function mountRoom(root, roomId) {
     micBtn.addEventListener('click', async () => {
       if (recorder) { await finishRecording(); return; }
       try { recorder = new VoiceRecorder(); await recorder.start(); }
-      catch (e) { toast(e.message || 'Could not start recording.'); recorder = null; return; }
+      catch (e) { toast(explainMediaError(e)); recorder = null; return; }
       micBtn.innerHTML = ICON.stop;
       recordBar.classList.remove('hidden');
       const paint = () => { recordBar.innerHTML = `<span class="rec-dot"></span> Recording… ${recorder.seconds().toFixed(0)}s <button class="btn btn-ghost btn-sm" id="rm-rec-cancel" style="margin-left:auto">Cancel</button>`; recordBar.querySelector('#rm-rec-cancel').onclick = cancelRecording; };
@@ -287,7 +288,7 @@ export async function mountRoom(root, roomId) {
         if (upErr) throw new Error(upErr.message);
         await sendRoomMessage({ room, body: '', attachment: { type: result.mime, path, name: 'Voice message', duration: result.duration, peaks: result.peaks }, replyTo: replyingTo ? replyingTo.id : null });
         cancelReply();
-      } catch (e) { toast(e.message || 'Could not send the voice message.'); }
+      } catch (e) { toast(friendlyError(e)); }
     }
 
     async function doSend() {
@@ -298,7 +299,7 @@ export async function mountRoom(root, roomId) {
       const replyId = replyingTo ? replyingTo.id : null;
       cancelReply();
       try { await sendRoomMessage({ room, body: text, replyTo: replyId }); }
-      catch (e) { toast(e.message || 'Could not send that message.'); }
+      catch (e) { toast(friendlyError(e)); }
     }
 
     async function sendFile(file) {
@@ -309,7 +310,7 @@ export async function mountRoom(root, roomId) {
         if (upErr) throw new Error(upErr.message);
         await sendRoomMessage({ room, body: '', attachment: { type: file.type || 'application/octet-stream', path, name: file.name, size: file.size }, replyTo: replyingTo ? replyingTo.id : null });
         cancelReply();
-      } catch (e) { toast(e.message || 'Could not send that file.'); }
+      } catch (e) { toast(friendlyError(e)); }
     }
   }
 
@@ -332,7 +333,7 @@ export async function mountRoom(root, roomId) {
     modal.querySelector('#ri-copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(link); toast('Invite link copied.'); } catch { toast(link); } });
     const resetBtn = modal.querySelector('#ri-reset');
     if (resetBtn) resetBtn.addEventListener('click', async () => {
-      try { room.invite_code = await resetInvite(roomId); toast('New invite code generated.'); closeModal(); openRoomInfo(); } catch (e) { toast(e.message || 'Could not reset the code.'); }
+      try { room.invite_code = await resetInvite(roomId); toast('New invite code generated.'); closeModal(); openRoomInfo(); } catch (e) { toast(friendlyError(e)); }
     });
     const membersEl = modal.querySelector('#ri-members');
     membersEl.innerHTML = (people || []).map((p) => `
@@ -342,16 +343,16 @@ export async function mountRoom(root, roomId) {
         ${isOwner && !p.is_owner ? `<button class="btn btn-ghost btn-sm" data-remove="${escapeHtml(p.user_id)}">Remove</button>` : ''}
       </div>`).join('');
     membersEl.querySelectorAll('[data-remove]').forEach((b) => b.addEventListener('click', async () => {
-      try { await removeMember(roomId, b.dataset.remove); toast('Removed from the group.'); closeModal(); openRoomInfo(); } catch (e) { toast(e.message || 'Could not remove that member.'); }
+      try { await removeMember(roomId, b.dataset.remove); toast('Removed from the group.'); closeModal(); openRoomInfo(); } catch (e) { toast(friendlyError(e)); }
     }));
     const leaveBtn = modal.querySelector('#ri-leave');
     if (leaveBtn) leaveBtn.addEventListener('click', async () => {
-      try { await leaveRoom(roomId); closeModal(); location.hash = '#/'; } catch (e) { toast(e.message || 'Could not leave the group.'); }
+      try { await leaveRoom(roomId); closeModal(); location.hash = '#/'; } catch (e) { toast(friendlyError(e)); }
     });
     const deleteBtn = modal.querySelector('#ri-delete');
     if (deleteBtn) deleteBtn.addEventListener('click', async () => {
       if (!confirm('Delete this group for everyone? This cannot be undone.')) return;
-      try { await deleteRoom(roomId); closeModal(); location.hash = '#/'; } catch (e) { toast(e.message || 'Could not delete the group.'); }
+      try { await deleteRoom(roomId); closeModal(); location.hash = '#/'; } catch (e) { toast(friendlyError(e)); }
     });
   }
 }

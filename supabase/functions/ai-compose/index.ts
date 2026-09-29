@@ -36,8 +36,13 @@ Deno.serve(async (req) => {
   const text = String(payload.text || '').trim();
   if (!text) return json({ error: 'Nothing to shorten' }, 400);
 
+  // Technical failures (a bad grant, a network hiccup, a malformed provider response) are logged here
+  // for whoever reads the function's own logs, never shown to the person using the app -- they only
+  // ever see a plain "AI is not set up" or a generic apology, never the underlying reason.
+  const GENERIC = 'Something went wrong on our end — our team is looking into it. Please try again in a moment.';
+
   const { data: cfg, error: cfgErr } = await db.from('system_config').select('ai_provider, ai_api_key, ai_model').eq('id', 1).single();
-  if (cfgErr) return json({ error: 'Could not read AI settings: ' + cfgErr.message });
+  if (cfgErr) { console.error('ai-compose: system_config read failed', cfgErr); return json({ error: GENERIC }); }
   if (!cfg || !cfg.ai_api_key || cfg.ai_provider !== 'anthropic') {
     return json({ error: 'AI is not set up yet — ask the configurer to add a key in Settings.' });
   }
@@ -53,11 +58,12 @@ Deno.serve(async (req) => {
         messages: [{ role: 'user', content: text }],
       }),
     });
-    if (!res.ok) return json({ error: `AI provider error ${res.status}` });
+    if (!res.ok) { console.error('ai-compose: provider error', res.status, await res.text()); return json({ error: GENERIC }); }
     const data = await res.json();
     const out = (data.content || []).filter((b: { type: string }) => b.type === 'text').map((b: { text: string }) => b.text).join('').trim();
     return json({ text: out || text });
   } catch (e) {
-    return json({ error: String(e) });
+    console.error('ai-compose: unexpected error', e);
+    return json({ error: GENERIC });
   }
 });

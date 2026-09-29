@@ -8,9 +8,10 @@ import { fetchSeen, statusOf } from '../lib/seen.js';
 import { escapeHtml, initials, fmtTime, uid } from '../lib/util.js';
 import { isEmojiOnly, EMOJI_GROUPS, recentEmoji, pushRecent } from '../lib/emoji.js';
 import { VoiceRecorder, MIN_VOICE_SECONDS, extensionFor } from '../lib/voice.js';
+import { explainMediaError } from '../lib/rtc.js';
 import { renderTicks, renderReplyQuote, renderReactionChips, attachSwipeReply, attachReactionPicker, jumpToMessage } from '../lib/msgui.js';
 import { startDirectCall } from './callui.js';
-import { toast, openModal } from '../lib/ui.js';
+import { toast, openModal, friendlyError } from '../lib/ui.js';
 import { ICON } from '../lib/icons.js';
 import { state } from '../state.js';
 
@@ -158,12 +159,12 @@ export async function mountChat(root, conversationId) {
     if (!m) return;
     attachSwipeReply(rowEl, () => startReply(m));
     attachReactionPicker(rowEl, (emoji) => {
-      rpc('toggle_message_reaction', { p_message: id, p_emoji: emoji }).catch((e) => toast(e.message || 'Could not react.'));
+      rpc('toggle_message_reaction', { p_message: id, p_emoji: emoji }).catch((e) => toast(friendlyError(e)));
     });
     const quote = rowEl.querySelector('[data-reply-jump]');
     if (quote) quote.addEventListener('click', () => jumpToMessage(msgsEl, quote.dataset.replyJump));
     rowEl.querySelectorAll('.reaction-chip').forEach((chip) => chip.addEventListener('click', () => {
-      rpc('toggle_message_reaction', { p_message: id, p_emoji: chip.dataset.emoji }).catch((e) => toast(e.message || 'Could not react.'));
+      rpc('toggle_message_reaction', { p_message: id, p_emoji: chip.dataset.emoji }).catch((e) => toast(friendlyError(e)));
     }));
   }
 
@@ -236,7 +237,7 @@ export async function mountChat(root, conversationId) {
         if (fnErr) throw new Error(fnErr.message || 'Could not reach the AI.');
         if (data && data.error) { toast(data.error); return; }
         if (data && data.text) { input.value = data.text; input.dispatchEvent(new Event('input')); }
-      } catch (e) { toast(e.message || 'Could not shorten that message.'); }
+      } catch (e) { toast(friendlyError(e)); }
       finally { aiBtn.disabled = false; }
     });
 
@@ -267,7 +268,7 @@ export async function mountChat(root, conversationId) {
       try {
         recorder = new VoiceRecorder();
         await recorder.start();
-      } catch (e) { toast(e.message || 'Could not start recording.'); recorder = null; return; }
+      } catch (e) { toast(explainMediaError(e)); recorder = null; return; }
       micBtn.innerHTML = ICON.stop;
       recordBar.classList.remove('hidden');
       const paint = () => { recordBar.innerHTML = `<span class="rec-dot"></span> Recording… ${recorder.seconds().toFixed(0)}s <button class="btn btn-ghost btn-sm" id="ch-rec-cancel" style="margin-left:auto">Cancel</button>`; recordBar.querySelector('#ch-rec-cancel').onclick = cancelRecording; };
@@ -297,7 +298,7 @@ export async function mountChat(root, conversationId) {
         if (upErr) throw new Error(upErr.message);
         await rpc('send_message', { p_conversation: conversationId, p_body: '', p_attachment: { type: result.mime, path, name: 'Voice message', duration: result.duration, peaks: result.peaks }, p_reply_to: replyingTo ? replyingTo.id : null });
         cancelReply();
-      } catch (e) { toast(e.message || 'Could not send the voice message.'); }
+      } catch (e) { toast(friendlyError(e)); }
     }
 
     async function doSend() {
@@ -308,7 +309,7 @@ export async function mountChat(root, conversationId) {
       const replyId = replyingTo ? replyingTo.id : null;
       cancelReply();
       try { await rpc('send_message', { p_conversation: conversationId, p_body: text, p_reply_to: replyId }); }
-      catch (e) { toast(e.message || 'Could not send that message.'); }
+      catch (e) { toast(friendlyError(e)); }
     }
 
     async function sendFile(file) {
@@ -319,7 +320,7 @@ export async function mountChat(root, conversationId) {
         if (upErr) throw new Error(upErr.message);
         await rpc('send_message', { p_conversation: conversationId, p_body: '', p_attachment: { type: file.type || 'application/octet-stream', path, name: file.name, size: file.size }, p_reply_to: replyingTo ? replyingTo.id : null });
         cancelReply();
-      } catch (e) { toast(e.message || 'Could not send that file.'); }
+      } catch (e) { toast(friendlyError(e)); }
     }
   }
 }

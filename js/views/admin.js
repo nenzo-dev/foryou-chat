@@ -4,7 +4,7 @@
 // reached this screen.
 import { rpc } from '../lib/db.js';
 import { escapeHtml, initials, timeAgo } from '../lib/util.js';
-import { toast, openModal, closeModal } from '../lib/ui.js';
+import { toast, openModal, closeModal, friendlyError } from '../lib/ui.js';
 import { state } from '../state.js';
 
 export async function mountAdmin(root) {
@@ -41,7 +41,7 @@ export async function mountAdmin(root) {
     try {
       if (tab === 'users') await paintUsers(content); else await paintAppeals(content);
     } catch (e) {
-      content.innerHTML = `<p class="muted">${escapeHtml(e.message || 'Could not load that.')}</p>`;
+      content.innerHTML = `<p class="muted">${escapeHtml(friendlyError(e))}</p>`;
     }
   }
 
@@ -63,7 +63,7 @@ export async function mountAdmin(root) {
     content.querySelectorAll('[data-suspend]').forEach((b) => b.addEventListener('click', () => openSuspendModal(b.dataset.suspend, b.dataset.name)));
     content.querySelectorAll('[data-unsuspend]').forEach((b) => b.addEventListener('click', async () => {
       try { await rpc('admin_unsuspend_user', { p_user: b.dataset.unsuspend }); toast('Account unsuspended.'); render(); }
-      catch (e) { toast(e.message || 'Could not unsuspend that account.'); }
+      catch (e) { toast(friendlyError(e)); }
     }));
   }
 
@@ -81,7 +81,7 @@ export async function mountAdmin(root) {
         toast('Account suspended.');
         closeModal();
         render();
-      } catch (e) { toast(e.message || 'Could not suspend that account.'); }
+      } catch (e) { toast(friendlyError(e)); }
     });
   }
 
@@ -103,12 +103,12 @@ export async function mountAdmin(root) {
 
     content.querySelectorAll('[data-approve]').forEach((b) => b.addEventListener('click', async () => {
       try { await rpc('admin_resolve_appeal', { p_appeal: b.dataset.approve, p_approve: true }); toast('Account reinstated.'); render(); }
-      catch (e) { toast(e.message || 'Could not resolve that appeal.'); }
+      catch (e) { toast(friendlyError(e)); }
     }));
     content.querySelectorAll('[data-deny]').forEach((b) => b.addEventListener('click', async () => {
       if (!confirm('Deny this appeal? The account stays suspended.')) return;
       try { await rpc('admin_resolve_appeal', { p_appeal: b.dataset.deny, p_approve: false }); toast('Appeal denied.'); render(); }
-      catch (e) { toast(e.message || 'Could not resolve that appeal.'); }
+      catch (e) { toast(friendlyError(e)); }
     }));
   }
 }
