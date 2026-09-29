@@ -1,6 +1,6 @@
 // The persistent left-hand pane: search bar, the combined list of DMs and rooms (sorted like WhatsApp,
 // most recent activity first), and the "new chat" / "new room" / "join by code" flows.
-import { rpc, avatarUrl } from '../lib/db.js';
+import { supabase, rpc, avatarUrl } from '../lib/db.js';
 import { onLive } from '../lib/live.js';
 import { watchSeen, statusOf } from '../lib/seen.js';
 import { createRoom, joinRoom } from '../lib/rooms.js';
@@ -106,42 +106,51 @@ export function mountChatList(root) {
   }
 }
 
-function openNewChatModal() {
+async function openNewChatModal() {
   const modal = openModal(`
     <h3>New chat</h3>
-    <p class="muted small">Find someone by username, or start a group.</p>
-    <label for="nc-username">Username</label>
-    <input id="nc-username" placeholder="e.g. chanda_m">
-    <div id="nc-result" style="margin-top:10px"></div>
+    <p class="muted small">Everyone on ForYou — tap someone to start chatting.</p>
+    <input id="nc-search" type="search" placeholder="Search by name or username">
+    <div id="nc-result" style="margin-top:10px;max-height:320px;overflow-y:auto"></div>
     <div style="margin:18px 0;border-top:1px solid var(--border)"></div>
     <button class="btn btn-ghost btn-block" id="nc-newroom">Create a group</button>
     <button class="btn btn-ghost btn-block" style="margin-top:8px" id="nc-joincode">Join a group by invite code</button>
   `);
-  const input = modal.querySelector('#nc-username');
+  const input = modal.querySelector('#nc-search');
   const result = modal.querySelector('#nc-result');
-  input.addEventListener('input', debounce(async () => {
-    const uname = input.value.trim().toLowerCase().replace(/^@/, '');
-    if (!uname) { result.innerHTML = ''; return; }
-    result.innerHTML = '<p class="muted small">Searching…</p>';
-    try {
-      const rows = await rpc('find_user_by_username', { p_username: uname });
-      const person = rows && rows[0];
-      if (!person) { result.innerHTML = '<p class="muted small">No one with that username.</p>'; return; }
-      result.innerHTML = `
-        <div class="list-item" style="border:1px solid var(--border);border-radius:12px">
-          <div class="avatar" style="background:${escapeHtml(person.avatar_color || '#3b82c4')}">${person.avatar_path ? `<img class="avatar" src="${escapeHtml(avatarUrl(person.avatar_path))}">` : escapeHtml(initials(person.full_name))}</div>
-          <div class="meta"><div class="name">${escapeHtml(person.full_name || person.username)}</div><div class="preview">@${escapeHtml(person.username)}</div></div>
-        </div>
-        <button class="btn btn-gold btn-block" style="margin-top:10px" id="nc-message">Message</button>`;
-      result.querySelector('#nc-message').addEventListener('click', async () => {
-        try {
-          const cid = await rpc('ensure_conversation', { p_other: person.id });
-          closeModal();
-          location.hash = `#/chat/${encodeURIComponent(cid)}`;
-        } catch (e) { toast(e.message || 'Could not start that chat.'); }
-      });
-    } catch (e) { result.innerHTML = `<p class="muted small">${escapeHtml(e.message || 'Search failed.')}</p>`; }
-  }, 300));
+  let everyone = [];
+
+  result.innerHTML = '<p class="muted small">Loading…</p>';
+  try {
+    const { data, error } = await supabase.from('profiles')
+      .select('id, full_name, username, avatar_path, avatar_color')
+      .neq('id', state.user.id).order('full_name').limit(300);
+    if (error) throw new Error(error.message);
+    everyone = data || [];
+    paint(everyone);
+  } catch (e) { result.innerHTML = `<p class="muted small">${escapeHtml(e.message || 'Could not load people.')}</p>`; }
+
+  input.addEventListener('input', debounce(() => {
+    const q = input.value.trim().toLowerCase().replace(/^@/, '');
+    if (!q) { paint(everyone); return; }
+    paint(everyone.filter((p) => (p.full_name || '').toLowerCase().includes(q) || (p.username || '').toLowerCase().includes(q)));
+  }, 150));
+
+  function paint(list) {
+    if (!list.length) { result.innerHTML = '<p class="muted small">No one found.</p>'; return; }
+    result.innerHTML = list.map((p) => `
+      <div class="list-item" data-person="${escapeHtml(p.id)}" style="border-radius:12px">
+        <div class="avatar" style="background:${escapeHtml(p.avatar_color || '#3b82c4')}">${p.avatar_path ? `<img class="avatar" src="${escapeHtml(avatarUrl(p.avatar_path))}">` : escapeHtml(initials(p.full_name))}</div>
+        <div class="meta"><div class="name">${escapeHtml(p.full_name || p.username || 'Someone')}</div><div class="preview">${p.username ? '@' + escapeHtml(p.username) : ''}</div></div>
+      </div>`).join('');
+    result.querySelectorAll('[data-person]').forEach((row) => row.addEventListener('click', async () => {
+      try {
+        const cid = await rpc('ensure_conversation', { p_other: row.dataset.person });
+        closeModal();
+        location.hash = `#/chat/${encodeURIComponent(cid)}`;
+      } catch (e) { toast(e.message || 'Could not start that chat.'); }
+    }));
+  }
 
   modal.querySelector('#nc-newroom').addEventListener('click', () => { closeModal(); openNewRoomModal(); });
   modal.querySelector('#nc-joincode').addEventListener('click', () => { closeModal(); openJoinCodeModal(); });

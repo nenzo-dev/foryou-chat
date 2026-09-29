@@ -4,8 +4,8 @@ import { hasSupabase, supabase, signOut, currentUser } from './lib/db.js';
 import { startLive, stopLive, onLive } from './lib/live.js';
 import { startSeen } from './lib/seen.js';
 import { startRingListener, stopRingListener } from './lib/ring.js';
-import { requestNotifyPermission, notify } from './lib/notify.js';
-import { showPane } from './lib/ui.js';
+import { requestNotifyPermission, notifyPermission, notifySupported, notify } from './lib/notify.js';
+import { toast, showPane } from './lib/ui.js';
 import { ensureProfile } from './lib/profile.js';
 import { state } from './state.js';
 import { renderAuth } from './views/auth.js';
@@ -121,8 +121,24 @@ async function enterApp(user, knownProfile) {
   wireMessageNotifications();
   stopSeen = startSeen();
   startRingListener(user.id, handleRingEvent);
-  requestNotifyPermission().catch(() => {});
+  nudgeNotifications();
   route();
+}
+
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+async function nudgeNotifications() {
+  if (!notifySupported()) return;
+  if (notifyPermission() !== 'default') return; // already granted, or already denied -- nothing useful to say
+  if (isIOS() && !isStandalone()) {
+    // iOS Safari refuses notification permission entirely for a page that isn't installed to the Home
+    // Screen yet -- asking now would just fail silently, so point them at the real fix instead.
+    toast('On iPhone, install ForYou to your Home Screen first (Settings → Get the app) to enable notifications.', 5000);
+    return;
+  }
+  const result = await requestNotifyPermission().catch(() => 'denied');
+  if (result !== 'granted') toast('You can turn on notifications any time in Settings.', 4000);
 }
 
 function buildShell() {

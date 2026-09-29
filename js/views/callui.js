@@ -6,6 +6,7 @@ import { GroupCall } from '../lib/groupcall.js';
 import { avatarUrl } from '../lib/db.js';
 import { ringUser } from '../lib/ring.js';
 import { startRing, stopRing } from '../lib/ringtone.js';
+import { notify } from '../lib/notify.js';
 import { toast } from '../lib/ui.js';
 import { initials, duration, escapeHtml } from '../lib/util.js';
 import { state } from '../state.js';
@@ -48,6 +49,10 @@ export function handleRingEvent(payload) {
 
 function showIncomingAlert(payload) {
   stopRing(); startRing();
+  // The custom two-tone ring (js/lib/ringtone.js) only plays while this tab is actually open and its
+  // audio isn't suspended -- a real OS notification is what gets the phone's own ringtone/notification
+  // sound and vibration to fire even when the app is backgrounded or another tab is in front.
+  notify('Incoming video call', (payload.fromName || 'Someone') + ' is calling you', 'foryou-incoming-call');
   incomingAlertEl = document.createElement('div');
   incomingAlertEl.className = 'call-overlay';
   incomingAlertEl.dataset.roomKey = payload.roomKey;
