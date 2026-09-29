@@ -1,10 +1,11 @@
-// A group chat: history, sending text/photos/files/voice notes, members with an invite QR/link, and a
-// group video call banner when people are already on one.
+// A group chat: history, sending text/photos/files/voice notes, swipe-to-reply, tap-to-react, members
+// with an invite QR/link, and a group video call banner when people are already on one.
 import { supabase, rpc, avatarUrl, attachmentUrl } from '../lib/db.js';
 import { onLive } from '../lib/live.js';
 import { escapeHtml, initials, fmtTime, uid } from '../lib/util.js';
 import { isEmojiOnly, EMOJI_GROUPS, recentEmoji, pushRecent } from '../lib/emoji.js';
 import { VoiceRecorder, MIN_VOICE_SECONDS, extensionFor } from '../lib/voice.js';
+import { renderReplyQuote, renderReactionChips, attachSwipeReply, attachReactionPicker, jumpToMessage } from '../lib/msgui.js';
 import { roomPeople, sendRoomMessage, inviteLink, resetInvite, leaveRoom, removeMember, deleteRoom, roomCalls, ROOM_FOLDER } from '../lib/rooms.js';
 import { startGroupCall } from './callui.js';
 import { toast, openModal, closeModal } from '../lib/ui.js';
@@ -30,15 +31,22 @@ export async function mountRoom(root, roomId) {
     </div>
     <div id="rm-call-banner"></div>
     <div class="messages" id="rm-messages"></div>
+    <div id="rm-reply-preview" class="reply-preview">
+      <div class="rp-body"><span class="rp-name" id="rm-rp-name"></span><span class="rp-text" id="rm-rp-text"></span></div>
+      <button class="rp-close" id="rm-rp-close" aria-label="Cancel reply">&times;</button>
+    </div>
     <div id="rm-record" class="record-indicator hidden"></div>
     <div id="rm-emoji" class="emoji-panel hidden"></div>
     <div class="composer">
       <button class="btn-icon" id="rm-emoji-btn" aria-label="Emoji">&#128512;</button>
       <input type="file" id="rm-file" class="hidden" accept="image/*,application/pdf,.doc,.docx">
       <button class="btn-icon" id="rm-attach" aria-label="Attach">&#128206;</button>
-      <textarea id="rm-input" rows="1" placeholder="Message"></textarea>
+      <div class="composer-input-wrap">
+        <textarea id="rm-input" rows="1" placeholder="Message"></textarea>
+        <button class="ai-compose-btn" id="rm-ai" title="Shorten with AI" aria-label="Shorten with AI">&#10024;</button>
+      </div>
       <button class="btn-icon" id="rm-mic" aria-label="Voice message">&#127908;</button>
-      <button class="btn-icon" id="rm-send" style="background:var(--gold);color:#1a1400" aria-label="Send">&#10148;</button>
+      <button class="btn-icon send-btn" id="rm-send" aria-label="Send">&#10148;</button>
     </div>`;
 
   root.querySelector('#rm-back').onclick = () => { location.hash = '#/'; };
@@ -47,10 +55,13 @@ export async function mountRoom(root, roomId) {
 
   const msgsEl = root.querySelector('#rm-messages');
   let messages = [];
+  let reactions = {};
+  let replyingTo = null;
   const { data: history } = await supabase.from('room_messages').select('*').eq('room_id', roomId).order('created_at', { ascending: true });
   messages = history || [];
   const people = await roomPeople(roomId).catch(() => []);
   const byId = Object.fromEntries((people || []).map((p) => [p.user_id, p]));
+  await loadReactions();
   paintMessages();
   scrollDown();
   rpc('mark_room_read', { p_room: roomId }).catch(() => {});
@@ -65,13 +76,25 @@ export async function mountRoom(root, roomId) {
       if (row.sender_id !== state.user.id) rpc('mark_room_read', { p_room: roomId }).catch(() => {});
     }
   });
+  const offReactions = onLive('room_message_reactions', (payload) => {
+    const row = payload.new || payload.old;
+    if (!row || !messages.some((m) => m.id === row.message_id)) return;
+    loadReactions().then(paintMessages);
+  });
 
   let callBeat = setInterval(paintCallBanner, 15000);
   paintCallBanner();
 
   wireComposer();
 
-  return () => { offLive(); clearInterval(callBeat); };
+  return () => { offLive(); offReactions(); clearInterval(callBeat); };
+
+  async function loadReactions() {
+    if (!messages.length) { reactions = {}; return; }
+    const { data } = await supabase.from('room_message_reactions').select('message_id, user_id, emoji').in('message_id', messages.map((m) => m.id));
+    reactions = {};
+    for (const r of data || []) (reactions[r.message_id] ||= []).push(r);
+  }
 
   async function paintCallBanner() {
     const banner = root.querySelector('#rm-call-banner');
@@ -98,19 +121,60 @@ export async function mountRoom(root, roomId) {
     msgsEl.innerHTML = html || `<div class="empty-state"><p>No messages yet — say hello 👋</p></div>`;
     msgsEl.querySelectorAll('[data-attach-path]').forEach(resolveAttachment);
     msgsEl.querySelectorAll('.voice-msg').forEach(wireVoicePlayback);
+    msgsEl.querySelectorAll('.msg-row').forEach(wireRow);
   }
 
   function renderMessage(m) {
     const mine = m.sender_id === state.user.id;
     const sender = byId[m.sender_id];
     const emojiOnly = !m.attachment && isEmojiOnly(m.body);
-    let body = '';
+    const original = m.reply_to_id ? messages.find((x) => x.id === m.reply_to_id) : null;
+    const quote = m.reply_to_id ? renderReplyQuote(original, original ? nameFor(original.sender_id) : 'Original message') : '';
+    let body = quote;
     if (!mine) body += `<span style="display:block;font-size:12px;font-weight:700;color:var(--gold);margin-bottom:2px">${escapeHtml((sender && sender.full_name) || 'Someone')}</span>`;
     if (m.attachment) body += renderAttachment(m.attachment, m.id);
     if (m.body) body += emojiOnly ? escapeHtml(m.body) : escapeHtml(m.body).replace(/\n/g, '<br>');
-    return `<div class="msg-row ${mine ? 'out' : 'in'} ${emojiOnly ? 'msg-emoji-only' : ''}">
-      <div class="bubble">${body}<span class="meta">${fmtTime(new Date(m.created_at).getTime(), Intl.DateTimeFormat().resolvedOptions().timeZone)}</span></div>
+    return `<div class="msg-row ${mine ? 'out' : 'in'} ${emojiOnly ? 'msg-emoji-only' : ''}" data-msg-id="${escapeHtml(m.id)}">
+      <div class="bubble-wrap">
+        <span class="swipe-reply-icon">&#8617;</span>
+        <div class="bubble">${body}<span class="meta">${fmtTime(new Date(m.created_at).getTime(), Intl.DateTimeFormat().resolvedOptions().timeZone)}</span></div>
+        ${renderReactionChips(reactions[m.id], state.user.id)}
+      </div>
     </div>`;
+  }
+
+  function nameFor(userId) {
+    if (userId === state.user.id) return 'You';
+    const p = byId[userId];
+    return (p && p.full_name) || 'Someone';
+  }
+
+  function wireRow(rowEl) {
+    const id = rowEl.dataset.msgId;
+    const m = messages.find((x) => x.id === id);
+    if (!m) return;
+    attachSwipeReply(rowEl, () => startReply(m));
+    attachReactionPicker(rowEl, (emoji) => {
+      rpc('toggle_room_message_reaction', { p_message: id, p_emoji: emoji }).catch((e) => toast(e.message || 'Could not react.'));
+    });
+    const quote = rowEl.querySelector('[data-reply-jump]');
+    if (quote) quote.addEventListener('click', () => jumpToMessage(msgsEl, quote.dataset.replyJump));
+    rowEl.querySelectorAll('.reaction-chip').forEach((chip) => chip.addEventListener('click', () => {
+      rpc('toggle_room_message_reaction', { p_message: id, p_emoji: chip.dataset.emoji }).catch((e) => toast(e.message || 'Could not react.'));
+    }));
+  }
+
+  function startReply(m) {
+    replyingTo = m;
+    root.querySelector('#rm-rp-name').textContent = nameFor(m.sender_id);
+    root.querySelector('#rm-rp-text').textContent = m.body || (m.attachment ? (m.attachment.type && m.attachment.type.startsWith('audio/') ? 'Voice message' : 'Attachment') : '');
+    root.querySelector('#rm-reply-preview').classList.add('show');
+    root.querySelector('#rm-input').focus();
+  }
+
+  function cancelReply() {
+    replyingTo = null;
+    root.querySelector('#rm-reply-preview').classList.remove('show');
   }
 
   function resolveAttachment(el) {
@@ -147,11 +211,27 @@ export async function mountRoom(root, roomId) {
     const fileInput = root.querySelector('#rm-file');
     const micBtn = root.querySelector('#rm-mic');
     const recordBar = root.querySelector('#rm-record');
+    const aiBtn = root.querySelector('#rm-ai');
     const folder = ROOM_FOLDER(roomId);
+
+    root.querySelector('#rm-rp-close').addEventListener('click', cancelReply);
 
     input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(120, input.scrollHeight) + 'px'; });
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } });
     send.addEventListener('click', doSend);
+
+    aiBtn.addEventListener('click', async () => {
+      const text = input.value.trim();
+      if (!text) { toast('Type something first.'); return; }
+      aiBtn.disabled = true;
+      try {
+        const { data, error: fnErr } = await supabase.functions.invoke('ai-compose', { body: { text } });
+        if (fnErr) throw new Error(fnErr.message || 'Could not reach the AI.');
+        if (data && data.error) { toast(data.error); return; }
+        if (data && data.text) { input.value = data.text; input.dispatchEvent(new Event('input')); }
+      } catch (e) { toast(e.message || 'Could not shorten that message.'); }
+      finally { aiBtn.disabled = false; }
+    });
 
     emojiBtn.addEventListener('click', () => {
       if (emojiPanel.classList.contains('hidden')) { paintEmoji(); emojiPanel.classList.remove('hidden'); } else emojiPanel.classList.add('hidden');
@@ -204,7 +284,8 @@ export async function mountRoom(root, roomId) {
       try {
         const { error: upErr } = await supabase.storage.from('attachments').upload(path, result.blob, { contentType: result.mime });
         if (upErr) throw new Error(upErr.message);
-        await sendRoomMessage({ room, body: '', attachment: { type: result.mime, path, name: 'Voice message', duration: result.duration, peaks: result.peaks } });
+        await sendRoomMessage({ room, body: '', attachment: { type: result.mime, path, name: 'Voice message', duration: result.duration, peaks: result.peaks }, replyTo: replyingTo ? replyingTo.id : null });
+        cancelReply();
       } catch (e) { toast(e.message || 'Could not send the voice message.'); }
     }
 
@@ -213,7 +294,9 @@ export async function mountRoom(root, roomId) {
       if (!text) return;
       input.value = ''; input.style.height = 'auto';
       emojiPanel.classList.add('hidden');
-      try { await sendRoomMessage({ room, body: text }); }
+      const replyId = replyingTo ? replyingTo.id : null;
+      cancelReply();
+      try { await sendRoomMessage({ room, body: text, replyTo: replyId }); }
       catch (e) { toast(e.message || 'Could not send that message.'); }
     }
 
@@ -223,7 +306,8 @@ export async function mountRoom(root, roomId) {
       try {
         const { error: upErr } = await supabase.storage.from('attachments').upload(path, file, { contentType: file.type || 'application/octet-stream' });
         if (upErr) throw new Error(upErr.message);
-        await sendRoomMessage({ room, body: '', attachment: { type: file.type || 'application/octet-stream', path, name: file.name, size: file.size } });
+        await sendRoomMessage({ room, body: '', attachment: { type: file.type || 'application/octet-stream', path, name: file.name, size: file.size }, replyTo: replyingTo ? replyingTo.id : null });
+        cancelReply();
       } catch (e) { toast(e.message || 'Could not send that file.'); }
     }
   }

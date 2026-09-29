@@ -4,7 +4,7 @@
 // (their own conversations, their own rooms) -- the database does the filtering, not this file.
 import { supabase } from './db.js';
 
-const TABLES = ['messages', 'room_messages', 'conversations', 'rooms', 'room_members'];
+const TABLES = ['messages', 'room_messages', 'conversations', 'rooms', 'room_members', 'message_reactions', 'room_message_reactions'];
 const targets = new Map();
 let ch = null;
 

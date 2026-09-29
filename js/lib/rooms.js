@@ -30,10 +30,10 @@ export const callPeople = async (roomId) => (await rpc('room_call_people', { p_r
 export const joinCall = (roomId) => rpc('join_room_call', { p_room: roomId });
 export const leaveCall = (roomId) => rpc('leave_room_call', { p_room: roomId });
 
-export async function sendRoomMessage({ room, body, attachment }) {
+export async function sendRoomMessage({ room, body, attachment, replyTo }) {
   const text = String(body || '').trim();
   if (!text && !attachment) return null;
-  return rpc('send_room_message', { p_room: room.id, p_body: text, p_attachment: attachment || null });
+  return rpc('send_room_message', { p_room: room.id, p_body: text, p_attachment: attachment || null, p_reply_to: replyTo || null });
 }
 
 export const markRoomRead = (roomId) => rpc('mark_room_read', { p_room: roomId });

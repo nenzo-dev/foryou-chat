@@ -1,12 +1,14 @@
-// A one-to-one conversation: history, sending text/photos/files/voice notes, emoji, and starting a
-// video call. If the other person has "Reply for me" on and this message reaches them while they're
-// away, their reply appears here tagged "Auto-reply" (message.sent_by_ai) -- see supabase/functions/ai-reply.
+// A one-to-one conversation: history, sending text/photos/files/voice notes, emoji, swipe-to-reply,
+// tap-to-react, read receipts, and starting a video call. If the other person has "Reply for me" on and
+// this message reaches them while they're away, their reply appears here tagged "Auto-reply"
+// (message.sent_by_ai) -- see supabase/functions/ai-reply.
 import { supabase, rpc, avatarUrl, attachmentUrl } from '../lib/db.js';
 import { onLive } from '../lib/live.js';
 import { fetchSeen, statusOf } from '../lib/seen.js';
 import { escapeHtml, initials, fmtTime, uid } from '../lib/util.js';
 import { isEmojiOnly, EMOJI_GROUPS, recentEmoji, pushRecent } from '../lib/emoji.js';
 import { VoiceRecorder, MIN_VOICE_SECONDS, extensionFor } from '../lib/voice.js';
+import { renderTicks, renderReplyQuote, renderReactionChips, attachSwipeReply, attachReactionPicker, jumpToMessage } from '../lib/msgui.js';
 import { startDirectCall } from './callui.js';
 import { toast, openModal } from '../lib/ui.js';
 import { state } from '../state.js';
@@ -37,15 +39,22 @@ export async function mountChat(root, conversationId) {
       <button class="btn-icon" id="ch-call" title="Video call">&#128249;</button>
     </div>
     <div class="messages" id="ch-messages"></div>
+    <div id="ch-reply-preview" class="reply-preview">
+      <div class="rp-body"><span class="rp-name" id="ch-rp-name"></span><span class="rp-text" id="ch-rp-text"></span></div>
+      <button class="rp-close" id="ch-rp-close" aria-label="Cancel reply">&times;</button>
+    </div>
     <div id="ch-record" class="record-indicator hidden"></div>
     <div id="ch-emoji" class="emoji-panel hidden"></div>
     <div class="composer">
       <button class="btn-icon" id="ch-emoji-btn" aria-label="Emoji">&#128512;</button>
       <input type="file" id="ch-file" class="hidden" accept="image/*,application/pdf,.doc,.docx">
       <button class="btn-icon" id="ch-attach" aria-label="Attach">&#128206;</button>
-      <textarea id="ch-input" rows="1" placeholder="Message"></textarea>
+      <div class="composer-input-wrap">
+        <textarea id="ch-input" rows="1" placeholder="Message"></textarea>
+        <button class="ai-compose-btn" id="ch-ai" title="Shorten with AI" aria-label="Shorten with AI">&#10024;</button>
+      </div>
       <button class="btn-icon" id="ch-mic" aria-label="Voice message">&#127908;</button>
-      <button class="btn-icon" id="ch-send" style="background:var(--gold);color:#1a1400" aria-label="Send">&#10148;</button>
+      <button class="btn-icon send-btn" id="ch-send" aria-label="Send">&#10148;</button>
     </div>`;
 
   paintAvatar(root.querySelector('#ch-avatar'), peer);
@@ -57,8 +66,12 @@ export async function mountChat(root, conversationId) {
 
   const msgsEl = root.querySelector('#ch-messages');
   let messages = [];
+  let reactions = {}; // message id -> [{user_id, emoji}]
+  let replyingTo = null;
+
   const { data: history } = await supabase.from('messages').select('*').eq('conversation_id', conversationId).order('created_at', { ascending: true });
   messages = history || [];
+  await loadReactions();
   paintMessages();
   scrollDown();
   rpc('mark_conversation_read', { p_conversation: conversationId }).catch(() => {});
@@ -76,10 +89,22 @@ export async function mountChat(root, conversationId) {
       if (i >= 0) { messages[i] = row; paintMessages(); }
     }
   });
+  const offReactions = onLive('message_reactions', (payload) => {
+    const row = payload.new || payload.old;
+    if (!row || !messages.some((m) => m.id === row.message_id)) return;
+    loadReactions().then(paintMessages);
+  });
 
   wireComposer();
 
-  return () => { offLive(); if (statusStop) clearInterval(statusStop); };
+  return () => { offLive(); offReactions(); if (statusStop) clearInterval(statusStop); };
+
+  async function loadReactions() {
+    if (!messages.length) { reactions = {}; return; }
+    const { data } = await supabase.from('message_reactions').select('message_id, user_id, emoji').in('message_id', messages.map((m) => m.id));
+    reactions = {};
+    for (const r of data || []) (reactions[r.message_id] ||= []).push(r);
+  }
 
   function tickStatus() {
     const set = async () => {
@@ -105,20 +130,56 @@ export async function mountChat(root, conversationId) {
     msgsEl.innerHTML = html || `<div class="empty-state"><p>Say hello 👋</p></div>`;
     msgsEl.querySelectorAll('[data-attach-path]').forEach(resolveAttachment);
     msgsEl.querySelectorAll('.voice-msg').forEach(wireVoicePlayback);
+    msgsEl.querySelectorAll('.msg-row').forEach(wireRow);
   }
-
-  function scrollDown() { requestAnimationFrame(() => { msgsEl.scrollTop = msgsEl.scrollHeight; }); }
 
   function renderMessage(m) {
     const mine = m.sender_id === state.user.id;
     const emojiOnly = !m.attachment && isEmojiOnly(m.body);
     const badge = m.sent_by_ai ? '<span class="ai-badge">Auto-reply</span>' : '';
-    let body = '';
+    const original = m.reply_to_id ? messages.find((x) => x.id === m.reply_to_id) : null;
+    const quote = m.reply_to_id ? renderReplyQuote(original, original ? (original.sender_id === state.user.id ? 'You' : (peer.full_name || 'Them')) : 'Original message') : '';
+    let body = quote;
     if (m.attachment) body += renderAttachment(m.attachment, m.id);
     if (m.body) body += emojiOnly ? escapeHtml(m.body) : escapeHtml(m.body).replace(/\n/g, '<br>');
-    return `<div class="msg-row ${mine ? 'out' : 'in'} ${emojiOnly ? 'msg-emoji-only' : ''}">
-      <div class="bubble">${badge}${body}<span class="meta">${fmtTime(new Date(m.created_at).getTime(), Intl.DateTimeFormat().resolvedOptions().timeZone)}</span></div>
+    return `<div class="msg-row ${mine ? 'out' : 'in'} ${emojiOnly ? 'msg-emoji-only' : ''}" data-msg-id="${escapeHtml(m.id)}">
+      <div class="bubble-wrap">
+        <span class="swipe-reply-icon">&#8617;</span>
+        <div class="bubble">${badge}${body}<span class="meta">${fmtTime(new Date(m.created_at).getTime(), Intl.DateTimeFormat().resolvedOptions().timeZone)}${renderTicks(m, mine)}</span></div>
+        ${renderReactionChips(reactions[m.id], state.user.id)}
+      </div>
     </div>`;
+  }
+
+  function wireRow(rowEl) {
+    const id = rowEl.dataset.msgId;
+    const m = messages.find((x) => x.id === id);
+    if (!m) return;
+    attachSwipeReply(rowEl, () => startReply(m));
+    attachReactionPicker(rowEl, (emoji) => {
+      rpc('toggle_message_reaction', { p_message: id, p_emoji: emoji }).catch((e) => toast(e.message || 'Could not react.'));
+    });
+    const quote = rowEl.querySelector('[data-reply-jump]');
+    if (quote) quote.addEventListener('click', () => jumpToMessage(msgsEl, quote.dataset.replyJump));
+    rowEl.querySelectorAll('.reaction-chip').forEach((chip) => chip.addEventListener('click', () => {
+      rpc('toggle_message_reaction', { p_message: id, p_emoji: chip.dataset.emoji }).catch((e) => toast(e.message || 'Could not react.'));
+    }));
+  }
+
+  function startReply(m) {
+    replyingTo = m;
+    const nameEl = root.querySelector('#ch-rp-name');
+    const textEl = root.querySelector('#ch-rp-text');
+    const mine = m.sender_id === state.user.id;
+    nameEl.textContent = mine ? 'You' : (peer.full_name || 'Them');
+    textEl.textContent = m.body || (m.attachment ? (m.attachment.type && m.attachment.type.startsWith('audio/') ? 'Voice message' : 'Attachment') : '');
+    root.querySelector('#ch-reply-preview').classList.add('show');
+    root.querySelector('#ch-input').focus();
+  }
+
+  function cancelReply() {
+    replyingTo = null;
+    root.querySelector('#ch-reply-preview').classList.remove('show');
   }
 
   function resolveAttachment(el) {
@@ -146,6 +207,8 @@ export async function mountChat(root, conversationId) {
     });
   }
 
+  function scrollDown() { requestAnimationFrame(() => { msgsEl.scrollTop = msgsEl.scrollHeight; }); }
+
   function wireComposer() {
     const input = root.querySelector('#ch-input');
     const send = root.querySelector('#ch-send');
@@ -155,10 +218,26 @@ export async function mountChat(root, conversationId) {
     const fileInput = root.querySelector('#ch-file');
     const micBtn = root.querySelector('#ch-mic');
     const recordBar = root.querySelector('#ch-record');
+    const aiBtn = root.querySelector('#ch-ai');
+
+    root.querySelector('#ch-rp-close').addEventListener('click', cancelReply);
 
     input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(120, input.scrollHeight) + 'px'; });
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } });
     send.addEventListener('click', doSend);
+
+    aiBtn.addEventListener('click', async () => {
+      const text = input.value.trim();
+      if (!text) { toast('Type something first.'); return; }
+      aiBtn.disabled = true;
+      try {
+        const { data, error: fnErr } = await supabase.functions.invoke('ai-compose', { body: { text } });
+        if (fnErr) throw new Error(fnErr.message || 'Could not reach the AI.');
+        if (data && data.error) { toast(data.error); return; }
+        if (data && data.text) { input.value = data.text; input.dispatchEvent(new Event('input')); }
+      } catch (e) { toast(e.message || 'Could not shorten that message.'); }
+      finally { aiBtn.disabled = false; }
+    });
 
     emojiBtn.addEventListener('click', () => {
       if (emojiPanel.classList.contains('hidden')) { paintEmoji(); emojiPanel.classList.remove('hidden'); } else emojiPanel.classList.add('hidden');
@@ -215,7 +294,8 @@ export async function mountChat(root, conversationId) {
       try {
         const { error: upErr } = await supabase.storage.from('attachments').upload(path, result.blob, { contentType: result.mime });
         if (upErr) throw new Error(upErr.message);
-        await rpc('send_message', { p_conversation: conversationId, p_body: '', p_attachment: { type: result.mime, path, name: 'Voice message', duration: result.duration, peaks: result.peaks } });
+        await rpc('send_message', { p_conversation: conversationId, p_body: '', p_attachment: { type: result.mime, path, name: 'Voice message', duration: result.duration, peaks: result.peaks }, p_reply_to: replyingTo ? replyingTo.id : null });
+        cancelReply();
       } catch (e) { toast(e.message || 'Could not send the voice message.'); }
     }
 
@@ -224,7 +304,9 @@ export async function mountChat(root, conversationId) {
       if (!text) return;
       input.value = ''; input.style.height = 'auto';
       emojiPanel.classList.add('hidden');
-      try { await rpc('send_message', { p_conversation: conversationId, p_body: text }); }
+      const replyId = replyingTo ? replyingTo.id : null;
+      cancelReply();
+      try { await rpc('send_message', { p_conversation: conversationId, p_body: text, p_reply_to: replyId }); }
       catch (e) { toast(e.message || 'Could not send that message.'); }
     }
 
@@ -234,7 +316,8 @@ export async function mountChat(root, conversationId) {
       try {
         const { error: upErr } = await supabase.storage.from('attachments').upload(path, file, { contentType: file.type || 'application/octet-stream' });
         if (upErr) throw new Error(upErr.message);
-        await rpc('send_message', { p_conversation: conversationId, p_body: '', p_attachment: { type: file.type || 'application/octet-stream', path, name: file.name, size: file.size } });
+        await rpc('send_message', { p_conversation: conversationId, p_body: '', p_attachment: { type: file.type || 'application/octet-stream', path, name: file.name, size: file.size }, p_reply_to: replyingTo ? replyingTo.id : null });
+        cancelReply();
       } catch (e) { toast(e.message || 'Could not send that file.'); }
     }
   }
