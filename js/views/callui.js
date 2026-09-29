@@ -18,6 +18,23 @@ let durationTimer = null;
 let incomingAlertEl = null;
 let pendingInvite = null; // the invite we are currently ringing for, so we can reply "declined"
 
+// A <video> playing someone else's mic audio isn't muted, and mobile Chrome silently blocks autoplay
+// of unmuted media without a very fresh user gesture -- the call still "connects" underneath, but the
+// element just never starts, forever black, with no error anywhere. Play it muted first (always
+// allowed) so the picture shows up immediately, then drop the mute a moment later; if that specific
+// unmute is what the browser objects to, the picture stays visible either way and only the audio needs
+// one more tap (any tap on the call screen counts as a fresh gesture and unmutes it).
+function playRemote(v, stream) {
+  v.dataset.callRemote = '1';
+  v.srcObject = stream;
+  v.muted = true;
+  v.play().catch(() => {});
+  setTimeout(() => {
+    v.muted = false;
+    v.play().catch(() => {});
+  }, 300);
+}
+
 function el() {
   if (!overlay) {
     overlay = document.createElement('div');
@@ -117,6 +134,9 @@ async function openDirectOverlay({ role, roomKey, peer }) {
       <button class="btn-icon" id="call-screen" aria-label="Share screen">&#128421;&#65039;</button>
       <button class="btn-icon end" id="call-end" aria-label="End call">&#128222;</button>
     </div>`;
+  // Any real tap on the call screen is a fresh user gesture -- a safety net in case the automatic
+  // unmute in playRemote() above was itself blocked by the browser's autoplay policy.
+  root.addEventListener('click', () => root.querySelectorAll('video[data-call-remote]').forEach((v) => { if (v.muted) { v.muted = false; v.play().catch(() => {}); } }));
 
   let media;
   try { media = await getLocalMedia({}); }
@@ -142,7 +162,7 @@ async function openDirectOverlay({ role, roomKey, peer }) {
     }
     if (s === 'failed' || s === 'ended') setTimeout(() => closeOverlay(), 1400);
   });
-  session.on('remote-stream', (stream) => { const v = root.querySelector('#call-remote'); if (v) v.srcObject = stream; });
+  session.on('remote-stream', (stream) => { const v = root.querySelector('#call-remote'); if (v) playRemote(v, stream); });
   session.on('denied', () => { toast('Call was not answered.'); closeOverlay(); });
   session.on('remote-left', () => { toast('The other person left.'); closeOverlay(); });
 
@@ -192,6 +212,7 @@ export async function startGroupCall(room) {
       <button class="btn-icon" id="gc-cam" aria-label="Camera">&#128249;</button>
       <button class="btn-icon end" id="gc-end" aria-label="Leave call">&#128222;</button>
     </div>`;
+  root.addEventListener('click', () => root.querySelectorAll('video[data-call-remote]').forEach((v) => { if (v.muted) { v.muted = false; v.play().catch(() => {}); } }));
 
   let media;
   try { media = await getLocalMedia({ small: true }); }
@@ -214,7 +235,7 @@ export async function startGroupCall(room) {
       const t = document.createElement('div');
       t.className = 'tile';
       t.innerHTML = `<video autoplay playsinline></video><span class="tag">${escapeHtml(p.name || 'Guest')}</span>`;
-      t.querySelector('video').srcObject = p.stream;
+      playRemote(t.querySelector('video'), p.stream);
       grid.appendChild(t);
     }
     const status = root.querySelector('#gc-status');
