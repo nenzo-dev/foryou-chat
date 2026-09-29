@@ -15,6 +15,8 @@ import { mountRoom } from './views/room.js';
 import { mountJoinRoom } from './views/joinroom.js';
 import { mountSettings } from './views/settings.js';
 import { mountInstall } from './views/install.js';
+import { mountAdmin } from './views/admin.js';
+import { renderSuspended } from './views/suspended.js';
 import { handleRingEvent } from './views/callui.js';
 
 const app = document.getElementById('app');
@@ -113,6 +115,7 @@ async function enterApp(user, knownProfile) {
     return;
   }
   state.profile = profile;
+  if (profile.suspended) { renderSuspended(app); return; }
   buildShell();
   startLive();
   wireMessageNotifications();
@@ -159,6 +162,9 @@ async function route() {
   } else if (hash === '#/install') {
     showPane('thread');
     disposeThread = await mountInstall(threadEl());
+  } else if (hash === '#/admin') {
+    showPane('thread');
+    disposeThread = await mountAdmin(threadEl());
   } else {
     showPane('list');
     emptyThread();

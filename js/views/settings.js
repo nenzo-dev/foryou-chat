@@ -69,6 +69,11 @@ export async function mountSettings(root) {
         <input id="st-ai-model" placeholder="claude-haiku-4-5-20251001">
         <button class="btn btn-ghost" style="margin-top:12px" id="st-save-ai">Save AI key</button>
         <div id="st-ai-msg" class="form-msg"></div>
+      </div>
+      <div class="settings-section">
+        <h4>Admin (configurer only)</h4>
+        <p class="muted small">Browse every account, suspend one, or review a pending appeal.</p>
+        <button class="btn btn-ghost" id="st-admin">Open admin panel</button>
       </div>` : ''}
 
       <div class="settings-section">
@@ -104,6 +109,8 @@ export async function mountSettings(root) {
     root.querySelector('#st-signout').addEventListener('click', async () => { await signOut(); });
     const saveAi = root.querySelector('#st-save-ai');
     if (saveAi) saveAi.addEventListener('click', saveAiKey);
+    const adminBtn = root.querySelector('#st-admin');
+    if (adminBtn) adminBtn.addEventListener('click', () => { location.hash = '#/admin'; });
   }
 
   function paintAvatar() {
