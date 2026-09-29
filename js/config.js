@@ -20,11 +20,17 @@ export const CONFIG = {
   fullName: 'ForYou — Chat, Connect, Belong',
   siteUrl: 'https://foryou-chat.pages.dev/',
   supabase: chosen ? { url: chosen.url.replace(/\/+$/, ''), anonKey: chosen.anonKey } : { url: '', anonKey: '' },
-  // Public STUN only (no relay) by default -- works for most direct connections. A call between two
-  // devices on a network that blocks direct peer-to-peer (some mobile carriers, some offices) would
-  // need a TURN relay added here later; same shape as MindCare's own ice.js so one can be added the
-  // same way without changing how the rest of the app calls currentIce().
-  iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }],
+  // STUN discovers a direct path between two devices, which is all that's needed on open WiFi -- but
+  // phones on mobile data usually sit behind carrier-grade NAT, where no direct path exists and a call
+  // needs a TURN relay to fall back to instead. Openrelay is a free, publicly documented community TURN
+  // service (these credentials are meant to be public, not a secret) -- good enough as a default; swap
+  // in a paid TURN provider here later for higher reliability without touching how rtc.js calls this.
+  iceServers: [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+  ],
 };
 
 export function saveBootstrap(url, anonKey) {
