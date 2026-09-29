@@ -83,7 +83,8 @@ export async function startDirectCall(peer) {
   const sup = mediaSupport();
   if (!sup.getUserMedia || !sup.peer) { toast('This browser cannot make video calls.'); return; }
   const roomKey = crypto.randomUUID().replace(/-/g, '');
-  await openDirectOverlay({ role: 'host', roomKey, peer });
+  const opened = await openDirectOverlay({ role: 'host', roomKey, peer });
+  if (!opened) return; // getLocalMedia() failed -- openDirectOverlay already toasted why and closed itself
   pendingInvite = { roomKey, peer };
   ringUser(peer.id, {
     type: 'invite', from: state.user.id, roomKey,
@@ -114,7 +115,7 @@ async function openDirectOverlay({ role, roomKey, peer }) {
 
   let media;
   try { media = await getLocalMedia({}); }
-  catch (e) { toast(explainMediaError(e)); closeOverlay(); return; }
+  catch (e) { toast(explainMediaError(e)); closeOverlay(); return false; }
   if (media.note) toast(media.note);
 
   root.querySelector('#call-local').srcObject = media.stream;
@@ -159,6 +160,7 @@ async function openDirectOverlay({ role, roomKey, peer }) {
   root.querySelector('#call-end').onclick = () => endDirectCall();
 
   await session.join(media.stream);
+  return true;
 }
 
 function endDirectCall(reason) {
