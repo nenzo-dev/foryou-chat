@@ -1,63 +1,82 @@
-// A group video call for a room. Everybody connects to everybody else (a "mesh"), which is why the
-// database caps a call at 8 people: with 8 people each sends its picture 7 times. Ported unchanged
-// from MindCare's own groupcall.js -- only the import paths change.
+// The video call inside a blind date: up to three people, everybody connected to everybody (the same
+// "mesh" and signalling as js/lib/groupcall.js), with one rule on top -- the blindfold. Until the date
+// is revealed, a dater's camera is never sent to the other dater at all: the video sender for that
+// connection carries no track (replaceTrack(null)), so there is nothing on the wire to peek at. The
+// host's connections carry video both ways from the start. When the database says the blindfold is
+// open, the camera is put on the dater-to-dater connection without renegotiating.
 //
-// Signalling uses a live channel named after the call's secret (only room members are given it). Every
-// message says who it is for. When someone arrives they say hello to everybody; each person answers, and
-// the pair sets up a direct connection. `stamp` marks one attempt to connect: a new stamp means "start
-// again", and answers to an older attempt are ignored.
+// People are addressed by seat id (blind_date_members.id), never by account id, and only seats the
+// database has listed for this date are talked to (setPeople). Who is a host and who is a dater comes
+// from the database too, never from the other side's own messages.
 import { channel } from './db.js';
 import { randomToken } from './util.js';
 import { currentIce, refreshIce } from './ice.js';
 import { isPhone, groupLimits } from './callhealth.js';
-import { joinCall, leaveCall } from './rooms.js';
 import { swapCameraTrack } from './rtc.js';
 
-const HEARTBEAT_MS = 15000;
-
-export class GroupCall {
-  constructor({ roomId, me }) {
-    this.roomId = roomId; this.me = me;
+export class DateCall {
+  constructor({ seat, role, revealed = false }) {
+    this.seat = seat; this.role = role; this.revealed = revealed;
     this.nonce = randomToken(6); this.attempt = 0;
     this.handlers = {};
-    this.peers = new Map();
-    this.local = null; this.ch = null; this.secret = null;
+    this.peers = new Map();   // seat -> peer
+    this.roles = new Map();   // seat -> 'host' | 'dater', from the database
+    this.waiting = [];        // signals from seats the database hasn't listed yet
+    this.local = null; this.ch = null; this.left = false;
     this.mediaState = { audio: true, video: true };
     this.phone = isPhone();
-    this.left = false;
     this.facing = 'user';
   }
 
   on(evt, fn) { (this.handlers[evt] ||= []).push(fn); return this; }
   emit(evt, data) { (this.handlers[evt] || []).forEach((fn) => { try { fn(data); } catch (e) { console.error(e); } }); }
   changed() { this.emit('peers', this.list()); }
+  list() { return [...this.peers.values()].map((p) => ({ seat: p.id, role: this.roles.get(p.id), media: p.media, stream: p.stream, state: p.state })); }
 
-  list() { return [...this.peers.values()].map((p) => ({ id: p.id, name: p.name, media: p.media, stream: p.stream, state: p.state })); }
+  // A dater's picture goes to the host always, and to the other dater only once the blindfold is open.
+  allowVideo(seat) { return !(this.role === 'dater' && this.roles.get(seat) !== 'host' && !this.revealed); }
 
-  async join(localStream) {
+  async join(localStream, secret) {
     this.local = localStream;
-    this.secret = await joinCall(this.roomId);
     await refreshIce();
-    this.ch = channel('gcall-' + this.secret);
+    this.ch = channel('bdate-' + secret);
     this.ch.on('sig', (m) => this.onSignal(m));
+    this.ch.on('room', (m) => { if (m && m.from !== this.seat) this.emit('room', m); });
     await this.ch.ready;
     this.hello();
-    this.beat = setInterval(async () => { try { await joinCall(this.roomId); } catch (e) { this.emit('kicked', e); } }, HEARTBEAT_MS);
     this.onHide = () => this.send({ type: 'bye' });
     addEventListener('pagehide', this.onHide);
   }
 
+  // The database's list of who is in the date right now (people from blind_date_beat).
+  setPeople(people, revealed) {
+    this.roles = new Map(people.filter((p) => !p.is_me && p.active).map((p) => [p.seat, p.role]));
+    for (const id of [...this.peers.keys()]) if (!this.roles.has(id)) this.dropPeer(id);
+    const queued = this.waiting.splice(0);
+    for (const m of queued) if (this.roles.has(m.from)) this.onSignal(m);
+    // Anyone listed that we have no connection with yet gets a fresh hello (covers a missed one).
+    for (const id of this.roles.keys()) if (!this.peers.has(id)) this.hello(id);
+    if (revealed && !this.revealed) this.reveal();
+  }
+
+  tell(kind) { if (this.ch) this.ch.send('room', { from: this.seat, kind }); }
+
   stamp() { return `${this.nonce}:${this.attempt}`; }
-  send(payload, to = null) { if (this.ch) this.ch.send('sig', { from: this.me.id, to, stamp: this.stamp(), ...payload }); }
-  hello(to = null) { this.send({ type: 'hello', name: this.me.full_name, media: this.mediaState }, to); }
+  send(payload, to = null) { if (this.ch) this.ch.send('sig', { from: this.seat, to, stamp: this.stamp(), ...payload }); }
+  hello(to = null) { this.send({ type: 'hello', media: this.mediaState }, to); }
 
   onSignal(m) {
-    if (this.left || !m || !m.from || m.from === this.me.id) return;
-    if (m.to && m.to !== this.me.id) return;
+    if (this.left || !m || !m.from || m.from === this.seat) return;
+    if (m.to && m.to !== this.seat) return;
+    if (!this.roles.has(m.from)) {
+      if (m.type !== 'bye' && this.waiting.length < 60) this.waiting.push(m);
+      this.emit('unknown-seat', m.from);
+      return;
+    }
     switch (m.type) {
       case 'hello':
         this.meet(m);
-        this.send({ type: 'hi', name: this.me.full_name, media: this.mediaState }, m.from);
+        this.send({ type: 'hi', media: this.mediaState }, m.from);
         break;
       case 'hi': this.meet(m); break;
       case 'desc': case 'ice': {
@@ -74,15 +93,15 @@ export class GroupCall {
 
   meet(m) {
     const have = this.peers.get(m.from);
-    if (have && have.stamp === m.stamp) { have.name = m.name || have.name; have.media = m.media || have.media; this.changed(); return have; }
+    if (have && have.stamp === m.stamp) { have.media = m.media || have.media; this.changed(); return have; }
     if (have) this.dropPeer(m.from, false);
     return this.createPeer(m.from, m);
   }
 
   createPeer(id, info) {
     const peer = {
-      id, name: info.name || 'Guest', media: info.media || { audio: true, video: true }, stamp: info.stamp,
-      pc: null, stream: new MediaStream(), state: 'connecting', polite: this.me.id > id, makingOffer: false, ignoreOffer: false, sender: null, retryTimer: null,
+      id, media: info.media || { audio: true, video: true }, stamp: info.stamp,
+      pc: null, stream: new MediaStream(), state: 'connecting', polite: this.seat > id, makingOffer: false, ignoreOffer: false, sender: null, retryTimer: null,
     };
     const pc = new RTCPeerConnection({ iceServers: currentIce(), iceCandidatePoolSize: 1 });
     peer.pc = pc;
@@ -103,7 +122,11 @@ export class GroupCall {
     if (this.local) {
       for (const t of this.local.getTracks()) {
         const sender = pc.addTrack(t, this.local);
-        if (t.kind === 'video') peer.sender = sender;
+        if (t.kind === 'video') {
+          peer.sender = sender;
+          // Blindfolded: the connection exists, but no picture goes down it.
+          if (!this.allowVideo(id)) sender.replaceTrack(null).catch(() => {});
+        }
       }
     }
     this.peers.set(id, peer);
@@ -136,7 +159,7 @@ export class GroupCall {
     const s = peer.pc ? peer.pc.connectionState : 'closed';
     peer.state = s === 'connected' ? 'connected' : s === 'failed' ? 'failed' : s === 'disconnected' ? 'reconnecting' : 'connecting';
     if (s === 'connected') { clearTimeout(peer.retryTimer); this.applyLimits(); }
-    if ((s === 'failed' || s === 'disconnected') && this.me.id < peer.id) {
+    if ((s === 'failed' || s === 'disconnected') && this.seat < peer.id) {
       clearTimeout(peer.retryTimer);
       peer.retryTimer = setTimeout(() => this.retry(peer.id), s === 'failed' ? 1000 : 6000);
     }
@@ -160,8 +183,20 @@ export class GroupCall {
       try { peer.pc.close(); } catch { /* already closed */ }
     }
     this.peers.delete(id);
-    this.applyLimits();
     if (announce) this.changed(); else this.emit('peers', this.list());
+  }
+
+  // The blindfold comes off: put the camera on every connection that was holding it back.
+  async reveal() {
+    this.revealed = true;
+    const track = this.local && this.local.getVideoTracks()[0];
+    for (const peer of this.peers.values()) {
+      if (peer.sender && track && peer.sender.track !== track && this.allowVideo(peer.id)) {
+        try { await peer.sender.replaceTrack(track); } catch (e) { console.error(e); }
+      }
+    }
+    this.applyLimits();
+    this.changed();
   }
 
   async applyLimits() {
@@ -194,27 +229,24 @@ export class GroupCall {
     this.announce();
   }
 
-  // Front/back camera on a phone. Returns the side now in use, or null if it couldn't switch.
   async switchCamera() {
     if (!this.local) return null;
     const got = await swapCameraTrack(this.local, this.facing === 'environment' ? 'user' : 'environment', this.phone, this.mediaState.video !== false);
     if (!got) return null;
     this.facing = got.facing;
     for (const peer of this.peers.values()) {
-      if (peer.sender) { try { await peer.sender.replaceTrack(got.track); } catch (e) { console.error(e); } }
+      if (peer.sender && this.allowVideo(peer.id)) { try { await peer.sender.replaceTrack(got.track); } catch (e) { console.error(e); } }
     }
     return got.facing;
   }
 
-  async leave() {
+  leave() {
     if (this.left) return;
     this.left = true;
-    clearInterval(this.beat);
     if (this.onHide) removeEventListener('pagehide', this.onHide);
     this.send({ type: 'bye' });
     for (const id of [...this.peers.keys()]) this.dropPeer(id, false);
     if (this.local) this.local.getTracks().forEach((t) => t.stop());
     if (this.ch) this.ch.close();
-    try { await leaveCall(this.roomId); } catch { /* the place frees itself after 45 seconds */ }
   }
 }

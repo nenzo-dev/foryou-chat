@@ -16,6 +16,8 @@ import { mountJoinRoom } from './views/joinroom.js';
 import { mountSettings } from './views/settings.js';
 import { mountInstall } from './views/install.js';
 import { mountAdmin } from './views/admin.js';
+import { mountDates } from './views/dates.js';
+import { mountDate } from './views/date.js';
 import { renderSuspended } from './views/suspended.js';
 import { handleRingEvent } from './views/callui.js';
 
@@ -155,7 +157,7 @@ function threadEl() { return document.getElementById('pane-thread'); }
 
 function emptyThread() {
   const el = threadEl();
-  if (el) el.innerHTML = `<div class="empty-state"><img src="icons/logo.webp" alt=""><p>Pick a conversation, or start a new one.</p></div>`;
+  if (el) el.innerHTML = `<div class="empty-state welcome"><img src="icons/logo.webp" alt=""><h2>Welcome to ForYou</h2><p>Pick a conversation on the left, or start a new one.</p></div>`;
 }
 
 async function route() {
@@ -172,6 +174,12 @@ async function route() {
   } else if ((m = hash.match(/^#\/rooms\/join\/([^/]+)$/))) {
     showPane('thread');
     disposeThread = await mountJoinRoom(threadEl(), decodeURIComponent(m[1]));
+  } else if (hash === '#/dates') {
+    showPane('thread');
+    disposeThread = await mountDates(threadEl());
+  } else if ((m = hash.match(/^#\/date\/([0-9a-f-]{36})$/))) {
+    showPane('thread');
+    disposeThread = await mountDate(threadEl(), m[1]);
   } else if (hash === '#/settings') {
     showPane('thread');
     disposeThread = await mountSettings(threadEl());

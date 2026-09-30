@@ -88,6 +88,10 @@ export function baseUrl() {
   return location.href.split('#')[0];
 }
 
+// Only a plain hex colour is used in a style attribute; anything else falls back. (avatar_color is free
+// text a person sets on their own profile, and ring payloads come from whoever sends them.)
+export const cssColor = (c, fallback = '#F5C400') => (/^#[0-9a-f]{3,8}$/i.test(String(c || '')) ? c : fallback);
+
 // A stable colour for a user's avatar circle, picked from their own id so it never changes.
 export function pickColor(seed = '') {
   const colors = ['#F5C400', '#e0473c', '#2ea6a1', '#8a5cf6', '#f2823c', '#3b82c4', '#d94f8c', '#57a648'];

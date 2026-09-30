@@ -4,7 +4,8 @@ import { supabase, rpc, avatarUrl } from '../lib/db.js';
 import { onLive } from '../lib/live.js';
 import { watchSeen, statusOf } from '../lib/seen.js';
 import { createRoom, joinRoom } from '../lib/rooms.js';
-import { initials, timeAgo, escapeHtml, debounce } from '../lib/util.js';
+import { dateLobby } from '../lib/dates.js';
+import { initials, timeAgo, escapeHtml, debounce, cssColor } from '../lib/util.js';
 import { openModal, closeModal, toast, friendlyError } from '../lib/ui.js';
 import { ICON } from '../lib/icons.js';
 import { state } from '../state.js';
@@ -18,17 +19,25 @@ export function mountChatList(root) {
     <div class="topbar">
       <div class="brand"><img src="icons/logo.webp" alt=""> ForYou</div>
       <div class="spacer"></div>
-      <button class="btn-icon" id="cl-install" title="Get the app">&#8595;</button>
-      <button class="btn-icon" id="cl-settings" title="Settings"></button>
+      <button class="head-btn" id="cl-install" title="Get the app" aria-label="Get the app">${ICON.download}</button>
+      <button class="me-btn" id="cl-settings" title="Settings" aria-label="Settings"></button>
     </div>
     <div class="searchbar"><input id="cl-search" type="search" placeholder="Search chats"></div>
-    <div class="list" id="cl-list"><p class="muted center" style="padding:20px">Loading…</p></div>
-    <button class="fab" id="cl-new" aria-label="New chat">+</button>`;
+    <div class="list" id="cl-list">
+      <button class="bd-banner" id="cl-dates" type="button">
+        <span class="bd-banner-art">${ICON.blindfold}</span>
+        <span class="bd-banner-txt"><b>UNILUS Blind Dates</b><span id="cl-dates-sub">Talk first, see later</span></span>
+        <span class="bd-banner-go">${ICON.back}</span>
+      </button>
+      <div id="cl-rows"><div class="thread-loading"><span></span><span></span><span></span></div></div>
+    </div>
+    <button class="fab" id="cl-new" aria-label="New chat">${ICON.plus}</button>`;
 
   paintMyAvatar();
   root.querySelector('#cl-settings').addEventListener('click', () => { location.hash = '#/settings'; });
   root.querySelector('#cl-install').addEventListener('click', () => { location.hash = '#/install'; });
   root.querySelector('#cl-new').addEventListener('click', openNewChatModal);
+  root.querySelector('#cl-dates').addEventListener('click', () => { location.hash = '#/dates'; });
   root.querySelector('#cl-search').addEventListener('input', debounce((e) => renderList(e.target.value), 120));
 
   const refresh = debounce(() => load(), 200);
@@ -37,18 +46,30 @@ export function mountChatList(root) {
   window.addEventListener('hashchange', highlightActive);
 
   load();
+  countDates();
+  const datesTimer = setInterval(countDates, 30000);
 
   return () => {
+    clearInterval(datesTimer);
     offs.forEach((off) => off());
     if (stopWatchingSeen) stopWatchingSeen();
     window.removeEventListener('hashchange', highlightActive);
   };
 
+  async function countDates() {
+    try {
+      const open = (await dateLobby()).filter((r) => !r.revealed).length;
+      const sub = root.querySelector('#cl-dates-sub');
+      if (sub) sub.textContent = open ? `${open} room${open === 1 ? '' : 's'} open now` : 'Talk first, see later';
+      root.querySelector('#cl-dates').classList.toggle('live', open > 0);
+    } catch { /* the banner keeps its tagline */ }
+  }
+
   function paintMyAvatar() {
     const btn = root.querySelector('#cl-settings');
     const p = state.profile;
-    if (p && p.avatar_path) btn.innerHTML = `<img src="${escapeHtml(avatarUrl(p.avatar_path))}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">`;
-    else { btn.style.background = (p && p.avatar_color) || 'var(--gold)'; btn.style.color = '#1a1400'; btn.textContent = initials((p && p.full_name) || '?'); }
+    if (p && p.avatar_path) btn.innerHTML = `<img src="${escapeHtml(avatarUrl(p.avatar_path))}" alt="">`;
+    else { btn.style.background = (p && p.avatar_color) || 'var(--gold)'; btn.textContent = initials((p && p.full_name) || '?'); }
   }
 
   async function load() {
@@ -67,17 +88,17 @@ export function mountChatList(root) {
       ].sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt));
       renderList(root.querySelector('#cl-search')?.value || '');
     } catch (e) {
-      root.querySelector('#cl-list').innerHTML = `<p class="muted center" style="padding:20px">${escapeHtml(friendlyError(e))}</p>`;
+      root.querySelector('#cl-rows').innerHTML = `<p class="muted center" style="padding:20px">${escapeHtml(friendlyError(e))}</p>`;
     }
   }
 
   function renderList(filter) {
-    const listEl = root.querySelector('#cl-list');
+    const listEl = root.querySelector('#cl-rows');
     if (!listEl) return;
     const q = String(filter || '').trim().toLowerCase();
     const shown = q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows;
     if (!shown.length) {
-      listEl.innerHTML = `<div class="empty-state" style="padding:40px 20px"><p>${q ? 'No chats match your search.' : "No chats yet — tap + to start one."}</p></div>`;
+      listEl.innerHTML = `<div class="list-empty"><p>${q ? 'No chats match your search.' : 'No chats yet. Tap + to start one.'}</p></div>`;
       return;
     }
     listEl.innerHTML = shown.map((r) => {
@@ -85,13 +106,16 @@ export function mountChatList(root) {
       const online = r.type === 'dm' && seenMap[r.otherId] && statusOf(seenMap[r.otherId].lastSeen).online;
       const avatar = r.avatarPath
         ? `<img class="avatar" src="${escapeHtml(avatarUrl(r.avatarPath))}" alt="">`
-        : `<div class="avatar" style="background:${escapeHtml((r.type === 'dm' ? r.avatarColor : null) || '#3b82c4')}">${r.type === 'room' ? ICON.people : escapeHtml(initials(r.name))}</div>`;
+        : r.type === 'room'
+          ? `<div class="avatar group-avatar">${ICON.people}</div>`
+          : `<div class="avatar" style="background:${cssColor(r.avatarColor, '#3b82c4')}">${escapeHtml(initials(r.name))}</div>`;
+      const muted = !r.preview || r.preview === 'Message deleted';
       return `
-      <div class="list-item" data-href="${href}" data-id="${r.type}:${r.id}">
-        <div style="position:relative">${avatar}${online ? '<span class="dot-online"></span>' : ''}</div>
+      <div class="list-item${r.unread ? ' unread' : ''}" data-href="${href}" data-id="${r.type}:${r.id}">
+        <div class="li-avatar">${avatar}${online ? '<span class="dot-online"></span>' : ''}</div>
         <div class="meta">
           <div class="top-row"><span class="name">${escapeHtml(r.name)}</span><span class="time">${r.lastAt ? timeAgo(new Date(r.lastAt).getTime()) : ''}</span></div>
-          <div class="top-row"><span class="preview">${escapeHtml(r.preview || 'No messages yet')}</span>${r.unread ? `<span class="badge">${r.unread > 99 ? '99+' : r.unread}</span>` : ''}</div>
+          <div class="top-row"><span class="preview${muted ? ' faint' : ''}">${escapeHtml(r.preview || 'No messages yet')}</span>${r.unread ? `<span class="badge">${r.unread > 99 ? '99+' : r.unread}</span>` : ''}</div>
         </div>
       </div>`;
     }).join('');
@@ -100,7 +124,7 @@ export function mountChatList(root) {
   }
 
   function highlightActive() {
-    const listEl = document.getElementById('cl-list');
+    const listEl = document.getElementById('cl-rows');
     if (!listEl) return;
     const h = location.hash;
     listEl.querySelectorAll('.list-item').forEach((el) => el.classList.toggle('active', el.dataset.href === h));

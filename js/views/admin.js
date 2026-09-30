@@ -5,6 +5,7 @@
 import { rpc } from '../lib/db.js';
 import { escapeHtml, initials, timeAgo } from '../lib/util.js';
 import { toast, openModal, closeModal, friendlyError } from '../lib/ui.js';
+import { ICON } from '../lib/icons.js';
 import { state } from '../state.js';
 
 export async function mountAdmin(root) {
@@ -16,7 +17,7 @@ export async function mountAdmin(root) {
   let tab = 'users';
   root.innerHTML = `
     <div class="thread-head">
-      <button class="back-btn" id="ad-back">&larr;</button>
+      <button class="back-btn" id="ad-back" aria-label="Back">${ICON.back}</button>
       <div class="info"><div class="name">Admin</div></div>
     </div>
     <div class="settings-body" style="max-width:640px">

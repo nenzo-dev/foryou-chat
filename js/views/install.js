@@ -5,12 +5,13 @@
 import { CONFIG } from '../config.js';
 import { canPromptInstall, promptInstall } from '../app.js';
 import { toast } from '../lib/ui.js';
+import { ICON } from '../lib/icons.js';
 
 export async function mountInstall(root) {
   const url = CONFIG.siteUrl || location.href.split('#')[0];
   root.innerHTML = `
     <div class="thread-head">
-      <button class="back-btn" id="in-back">&larr;</button>
+      <button class="back-btn" id="in-back" aria-label="Back">${ICON.back}</button>
       <div class="info"><div class="name">Get the app</div></div>
     </div>
     <div class="settings-body">

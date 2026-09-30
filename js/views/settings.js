@@ -4,6 +4,7 @@ import { supabase, rpc, avatarUrl, signOut } from '../lib/db.js';
 import { escapeHtml, initials, uid, readFileAsDataURL, formatBytes } from '../lib/util.js';
 import { notifySupported, notifyPermission, requestNotifyPermission } from '../lib/notify.js';
 import { toast, friendlyError } from '../lib/ui.js';
+import { ICON } from '../lib/icons.js';
 import { state } from '../state.js';
 
 const SWATCHES = ['#F5C400', '#e0473c', '#2ea6a1', '#8a5cf6', '#f2823c', '#3b82c4', '#d94f8c', '#57a648'];
@@ -16,7 +17,7 @@ export async function mountSettings(root) {
   function render() {
     root.innerHTML = `
     <div class="thread-head">
-      <button class="back-btn" id="st-back">&larr;</button>
+      <button class="back-btn" id="st-back" aria-label="Back">${ICON.back}</button>
       <div class="info"><div class="name">Settings</div></div>
     </div>
     <div class="settings-body">

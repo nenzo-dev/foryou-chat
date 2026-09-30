@@ -40,6 +40,30 @@ export async function getLocalMedia({ audioDeviceId, videoDeviceId, small = fals
   }
 }
 
+// Swaps the camera in `stream` for the front ('user') or back ('environment') one. The old camera is
+// stopped first because many phones can only have one camera open at a time. Returns { track, facing }
+// (facing is what was actually opened), or null if no camera could be opened at all.
+export async function swapCameraTrack(stream, facing, phone, enabled = true) {
+  const old = stream.getVideoTracks()[0];
+  if (old) old.stop();
+  const open = (f) => navigator.mediaDevices.getUserMedia({ video: { ...cameraConstraints(phone), facingMode: { ideal: f } } });
+  let s = null, got = facing;
+  try { s = await open(facing); }
+  catch { got = facing === 'user' ? 'environment' : 'user'; s = await open(got).catch(() => null); }
+  if (!s) return null;
+  const track = s.getVideoTracks()[0];
+  if (!track) return null;
+  track.enabled = enabled;
+  if (old) stream.removeTrack(old);
+  stream.addTrack(track);
+  return { track, facing: got };
+}
+
+export async function hasSeveralCameras() {
+  try { return (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput').length > 1; }
+  catch { return false; }
+}
+
 export class CallSession {
   constructor({ roomKey, me, role, peerId }) {
     this.roomKey = roomKey; this.me = me; this.role = role; this.peerId = peerId;
@@ -59,6 +83,7 @@ export class CallSession {
     this.phone = isPhone();
     this.lowByLink = false; this.lowByPeer = false;
     this.recovering = false;
+    this.facing = 'user';
   }
 
   on(evt, fn) { (this.handlers[evt] ||= []).push(fn); return this; }
@@ -280,7 +305,7 @@ export class CallSession {
     if (this.left || this.recovering || !old || old.readyState !== 'ended' || this.screenTrack) return false;
     this.recovering = true;
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ video: { ...cameraConstraints(this.phone), facingMode: 'user' } });
+      const s = await navigator.mediaDevices.getUserMedia({ video: { ...cameraConstraints(this.phone), facingMode: this.facing || 'user' } });
       const track = s.getVideoTracks()[0];
       if (!track) return false;
       track.enabled = this.mediaState.video !== false;
@@ -308,6 +333,18 @@ export class CallSession {
     if (t) t.enabled = !off;
     this.mediaState = { ...this.mediaState, video: !off };
     this.announce();
+  }
+
+  // Front/back camera on a phone. Returns the side now in use, or null if it couldn't switch.
+  async switchCamera() {
+    if (this.screenTrack || !this.local) return null;
+    const got = await swapCameraTrack(this.local, this.facing === 'environment' ? 'user' : 'environment', this.phone, this.mediaState.video !== false);
+    if (!got) return null;
+    this.facing = got.facing;
+    if (this.videoSender) { try { await this.videoSender.replaceTrack(got.track); } catch (e) { console.error(e); } }
+    this.watchCamera(got.track);
+    this.applySendLimits();
+    return got.facing;
   }
 
   async startScreen() {

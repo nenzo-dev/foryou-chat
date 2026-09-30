@@ -11,10 +11,16 @@ export const supabase = hasSupabase
   ? createClient(CONFIG.supabase.url, CONFIG.supabase.anonKey, { auth: { persistSession: true, autoRefreshToken: true } })
   : null;
 
+// A database error raised with hint 'fy:show' (see supabase/migrations/07) was written to be read by
+// people, e.g. "Both dater seats are taken." -- it is marked so friendlyError() passes it through.
 export async function rpc(name, args = {}) {
   if (!supabase) throw new Error('This app is not connected to a database yet.');
   const { data, error } = await supabase.rpc(name, args);
-  if (error) throw new Error(error.message || 'Something went wrong.');
+  if (error) {
+    const e = new Error(error.message || 'Something went wrong.');
+    if (error.hint === 'fy:show') e.show = true;
+    throw e;
+  }
   return data;
 }
 
