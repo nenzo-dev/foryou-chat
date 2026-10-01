@@ -49,6 +49,9 @@ adb wait-for-device
 adb shell settings put system screen_off_timeout 1800000
 adb shell input keyevent KEYCODE_WAKEUP
 adb shell wm dismiss-keyguard
+# A fresh emulator can take a while to get online; the site can't load before that.
+dns_ok() { adb shell "ping -c 1 -W 2 foryou-chat.pages.dev" 2>&1 | grep -q "^PING"; }
+wait_for 180 dns_ok || echo "NOTE: the emulator still can't look up foryou-chat.pages.dev" | tee -a "$OUT/results.txt"
 adb logcat -c
 
 # ---------------------------------------------------------------- 1. release build opens the site
@@ -89,18 +92,18 @@ adb shell cmd statusbar collapse
 if grep -qE "fullscreenIntent=PendingIntent" "$OUT/notifications-call.txt"; then pass "call uses a full-screen alert"; else fail "call has no full-screen alert"; fi
 if grep -qE "category=call|mId='calls'" "$OUT/notifications-call.txt"; then pass "call uses the Calls channel"; else fail "call is not on the Calls channel"; fi
 
+# Back on screen, the page ends the call and the ringing must stop. (Left out of sight for long,
+# Android pauses the page, which is why calls also come by push.)
+adb shell am start -n "$DBG/com.foryou.chat.MainActivity" >/dev/null
+if wait_for 20 page_log "page: call ended" && wait_for 10 not_ringing; then pass "ringing stops when the call ends"; else fail "ringing did not stop"; fi
+shot 04-after-call
+
 adb shell dumpsys jobscheduler > "$OUT/jobs.txt"
 if grep -qF "$DBG/com.foryou.chat.InboxJob" "$OUT/jobs.txt"; then pass "background inbox check is scheduled"; else fail "background inbox check is not scheduled"; fi
 adb shell cmd jobscheduler run -f "$DBG" 4242 >/dev/null 2>&1
 sleep 8
 adb logcat -d -s ForYou:V > "$OUT/debug-log.txt"
 if grep -qE "Inbox check (failed|scheduled)|Inbox checked" "$OUT/debug-log.txt"; then pass "background inbox check runs"; else fail "background inbox check did not run"; fi
-
-# Out of sight, Android soon pauses the page (that's why calls also come by push). Back on screen it
-# carries on and ends the call, and the ringing must stop.
-adb shell am start -n "$DBG/com.foryou.chat.MainActivity" >/dev/null
-if wait_for 40 page_log "page: call ended" && wait_for 10 not_ringing; then pass "ringing stops when the call ends"; else fail "ringing did not stop"; fi
-shot 04-after-call
 
 # ---------------------------------------------------------------- 3. pushes with the app closed
 # A Firebase push starts the app's process by itself; the debug build's test receiver does the same

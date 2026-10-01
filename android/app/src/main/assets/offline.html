@@ -18,5 +18,9 @@
   <p>It's not you, it's us. Check that your phone is online, then try again.</p>
   <a href="https://foryou-chat.pages.dev/">Try again</a>
 </main>
+<script>
+  // Back online: try again without waiting for a tap.
+  addEventListener('online', function () { location.href = 'https://foryou-chat.pages.dev/'; });
+</script>
 </body>
 </html>

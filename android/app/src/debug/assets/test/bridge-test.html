@@ -19,14 +19,28 @@
     log('info ' + b.info());
     // A call that came by push and was answered from the notification waits here for the page.
     log('pending ' + (b.takePendingCall() || 'none'));
-    // The page isn't "visible" once the test sends the app to the background, so these show.
-    setTimeout(function () {
+    // A message and a call while the app is out of sight (as soon as the test sends it to the
+    // background), then the call ends when it's back on screen. The timers are a fallback.
+    var KEY = '0123456789abcdef0123456789abcdef', rang = false, ended = false;
+    function ring() {
+      if (rang) return;
+      rang = true;
       b.notify('Test Ann', 'Hello from the bridge test', 'foryou-dm-test', '#/chat/test');
       log('notified');
-      b.incomingCall(JSON.stringify({ roomKey: '0123456789abcdef0123456789abcdef', name: 'Test Caller' }));
+      b.incomingCall(JSON.stringify({ roomKey: KEY, name: 'Test Caller' }));
       log('ringing');
-    }, 6000);
-    setTimeout(function () { b.endIncomingCall('0123456789abcdef0123456789abcdef'); log('call ended'); }, 30000);
+    }
+    function end() {
+      if (!rang || ended) return;
+      ended = true;
+      b.endIncomingCall(KEY);
+      log('call ended');
+    }
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') ring(); else end();
+    });
+    setTimeout(ring, 6000);
+    setTimeout(end, 30000);
     b.registerDevice(JSON.stringify({ url: 'https://test-not-a-real-project.supabase.co', key: 'test-key', token: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', user: '00000000-0000-0000-0000-000000000001' }));
     log('device registered');
     b.setInCall(true);
