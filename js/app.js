@@ -22,7 +22,7 @@ import { mountDates } from './views/dates.js';
 import { mountDate } from './views/date.js';
 import { renderSuspended } from './views/suspended.js';
 import { mountLegal, openLegalSheet } from './views/legal.js';
-import { handleRingEvent } from './views/callui.js';
+import { handleRingEvent, checkAndroidPendingCall } from './views/callui.js';
 
 const app = document.getElementById('app');
 let disposeThread = null;
@@ -184,6 +184,7 @@ async function enterApp(user, knownProfile) {
   registerAndroidDevice(user);
   route();
   askToAcceptTerms();
+  checkAndroidPendingCall();
 }
 
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;

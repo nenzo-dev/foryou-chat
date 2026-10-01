@@ -30,6 +30,15 @@ wait_for() {
   return 1
 }
 has_notification() { notifications | grep -qF "$1"; }
+ui_dump() { adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1; adb shell cat /sdcard/ui.xml; }
+tap_text() {
+  local bounds
+  bounds=$(ui_dump | tr '>' '\n' | grep -F "text=\"$1\"" | grep -oE 'bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' | head -1)
+  [ -n "$bounds" ] || return 1
+  local x1 y1 x2 y2
+  read -r x1 y1 x2 y2 <<<"$(echo "$bounds" | grep -oE '[0-9]+' | tr '\n' ' ')"
+  adb shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2))
+}
 no_notification() { ! has_notification "$1"; }
 
 adb wait-for-device
@@ -85,6 +94,54 @@ if grep -qE "Inbox check (failed|scheduled)|Inbox checked" "$OUT/debug-log.txt";
 
 if wait_for 40 no_notification "Test Caller"; then pass "ringing stops when the call ends"; else fail "ringing did not stop"; fi
 shot 04-after-call
+
+# ---------------------------------------------------------------- 3. pushes with the app closed
+# A Firebase push starts the app's process by itself; the debug build's test receiver does the same
+# with an adb broadcast, and hands the push to the same code.
+push() { adb shell am broadcast -a com.foryou.chat.TEST_PUSH -n "$DBG/com.foryou.chat.DebugPushReceiver" "$@" >/dev/null; }
+close_app() {
+  adb shell input keyevent KEYCODE_HOME
+  sleep 2
+  local pid
+  pid=$(adb shell pidof "$DBG" | tr -d '\r' | awk '{print $1}')
+  [ -n "$pid" ] && { adb shell run-as "$DBG" kill -9 "$pid" 2>/dev/null || adb shell kill -9 "$pid" 2>/dev/null; }
+  sleep 1
+  [ -z "$(adb shell pidof "$DBG" | tr -d '\r')" ]
+}
+KEY=fedcba9876543210fedcba9876543210
+if close_app; then pass "app is closed"; else fail "could not close the app"; fi
+push --es type call --es roomKey "$KEY" --es from 00000000-0000-0000-0000-0000000000aa --es fromName "Push Caller"
+if wait_for 20 has_notification "Push Caller"; then pass "call push rings with the app closed"; else fail "call push did not ring"; fi
+notifications > "$OUT/notifications-push-call.txt"
+grep -qE "fullscreenIntent=PendingIntent" "$OUT/notifications-push-call.txt" && pass "pushed call uses a full-screen alert" || fail "pushed call has no full-screen alert"
+adb shell cmd statusbar expand-notifications
+sleep 2
+shot 05-push-call
+adb shell cmd statusbar collapse
+push --es type cancel --es roomKey "$KEY" --es fromName "Push Caller"
+if wait_for 20 no_notification "Push Caller"; then pass "cancelled call stops ringing"; else fail "cancelled call kept ringing"; fi
+if wait_for 10 has_notification "Missed video call"; then pass "missed call is shown"; else fail "missed call not shown"; fi
+
+if close_app; then :; fi
+push --es type message --es tag foryou-dm-pushtest --es title "Push Ann" --es body "Instant hello from a push" --es hash "#/chat/pushtest"
+if wait_for 20 has_notification "Instant hello from a push"; then pass "message push shows with the app closed"; else fail "message push did not show"; fi
+
+# Answer on the ringing screen opens the app.
+if close_app; then :; fi
+push --es type call --es roomKey "$KEY" --es from 00000000-0000-0000-0000-0000000000aa --es fromName "Push Caller"
+wait_for 20 has_notification "Push Caller" >/dev/null
+adb shell cmd statusbar expand-notifications
+sleep 2
+if tap_text "Answer" || tap_text "ANSWER"; then
+  sleep 5
+  if adb shell dumpsys window | grep -E "mCurrentFocus" | grep -q "$DBG/"; then pass "Answer opens the app"; else fail "Answer did not open the app"; fi
+else
+  fail "could not find the Answer button"
+fi
+shot 06-after-answer
+adb logcat -d -s ForYou:V > "$OUT/push-log.txt"
+
+if grep -qF "Push token ready" "$OUT/release-log.txt"; then pass "release app gets a push token"; else echo "NOTE: no push token in the release app (expected until google-services.json is added)" | tee -a "$OUT/results.txt"; fi
 
 adb logcat -d -b crash > "$OUT/crashes.txt" 2>/dev/null
 if grep -qF "com.foryou.chat" "$OUT/crashes.txt"; then fail "the app crashed (see crashes.txt)"; else pass "no crashes"; fi

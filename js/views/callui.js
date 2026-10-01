@@ -3,7 +3,7 @@
 // call startDirectCall(peer) / startGroupCall(room), and app.js forwards ring events here.
 import { CallSession, getLocalMedia, mediaSupport, explainMediaError, hasSeveralCameras } from '../lib/rtc.js';
 import { GroupCall } from '../lib/groupcall.js';
-import { avatarUrl } from '../lib/db.js';
+import { avatarUrl, supabase } from '../lib/db.js';
 import { ringUser } from '../lib/ring.js';
 import { startRing, stopRing } from '../lib/ringtone.js';
 import { notify } from '../lib/notify.js';
@@ -12,7 +12,7 @@ import { isPhone } from '../lib/callhealth.js';
 import { toast, friendlyError } from '../lib/ui.js';
 import { initials, duration, escapeHtml, pickColor, cssColor } from '../lib/util.js';
 import { ICON } from '../lib/icons.js';
-import { inAndroidApp, androidIncomingCall, androidEndIncomingCall, androidInCall } from '../lib/android.js';
+import { inAndroidApp, androidIncomingCall, androidEndIncomingCall, androidInCall, androidTakePendingCall } from '../lib/android.js';
 import { state } from '../state.js';
 
 let overlay = null;
@@ -24,6 +24,7 @@ let incomingAlertEl = null;
 let incomingTimer = null;
 let pendingInvite = null; // the invite we are ringing out with, so it can be cancelled
 let busyElsewhere = false;
+let incoming = null;      // { roomKey, accept, decline } for the call ringing right now
 let overlaySeq = 0;       // bumps on every open/close so a late close animation never wipes a newer call
 
 const RING_TIMEOUT_MS = 45000;
@@ -79,6 +80,9 @@ const qualityBars = '<i></i><i></i><i></i>';
 export function handleRingEvent(payload) {
   if (!payload || payload.from === state.user?.id) return;
   if (payload.type === 'invite') {
+    // The same call can arrive twice (live channel and phone push): that's not a second caller.
+    if (incomingAlertEl && incomingAlertEl.dataset.roomKey === payload.roomKey) return;
+    if (session && session.roomKey === payload.roomKey) return;
     if (isBusy() || incomingAlertEl) { ringUser(payload.from, { type: 'decline', from: state.user.id, roomKey: payload.roomKey, reason: 'busy' }); return; }
     showIncomingAlert(payload);
   } else if (payload.type === 'decline') {
@@ -128,11 +132,7 @@ function showIncomingAlert(payload) {
   };
   incomingAlertEl.querySelector('#ic-decline').onclick = decline;
   incomingAlertEl.querySelector('#ic-accept').onclick = accept;
-  // Answer / Decline pressed on the Android app's own ringing screen.
-  window.__foryouCall = (action, roomKey) => {
-    if (!incomingAlertEl || roomKey !== payload.roomKey) return;
-    if (action === 'accept') accept(); else if (action === 'decline') decline();
-  };
+  incoming = { roomKey: payload.roomKey, accept, decline };
   clearTimeout(incomingTimer);
   incomingTimer = setTimeout(() => { if (incomingAlertEl && incomingAlertEl.dataset.roomKey === payload.roomKey) dismissIncomingAlert(); }, RING_TIMEOUT_MS + 5000);
 }
@@ -140,6 +140,7 @@ function showIncomingAlert(payload) {
 function dismissIncomingAlert() {
   stopRing();
   clearTimeout(incomingTimer);
+  incoming = null;
   if (incomingAlertEl) {
     androidEndIncomingCall(incomingAlertEl.dataset.roomKey);
     const node = incomingAlertEl;
@@ -147,6 +148,41 @@ function dismissIncomingAlert() {
     node.classList.add('closing');
     setTimeout(() => node.remove(), 220);
   }
+}
+
+/* ---------------------------- calls that reached the Android app by push ---------------------------- */
+
+// Answer / Decline pressed on the Android app's own ringing screen.
+window.__foryouCall = (action, roomKey) => {
+  if (incoming && incoming.roomKey === roomKey) {
+    androidTakePendingCall(); // used up
+    if (action === 'accept') incoming.accept(); else if (action === 'decline') incoming.decline();
+  } else if (action === 'accept') {
+    checkAndroidPendingCall();
+  }
+};
+
+// A call pushed while the app was closed or out of sight: answer it if Answer was already pressed,
+// otherwise show it ringing here. Called once the app is signed in, and whenever it comes back to front.
+export function checkAndroidPendingCall() {
+  if (!state.user || !inAndroidApp()) return;
+  const p = androidTakePendingCall();
+  const invite = p && p.invite;
+  if (!invite || !invite.roomKey || invite.from === state.user.id) return;
+  if (p.action === 'accept') {
+    if (incoming && incoming.roomKey === invite.roomKey) { incoming.accept(); return; }
+    if (!isBusy()) answerDirectCall(invite);
+  } else if (!incomingAlertEl && !isBusy()) {
+    showIncomingAlert(invite);
+  }
+}
+window.__foryouCheckCall = checkAndroidPendingCall;
+
+// Rings (or stops ringing) the other person's phone through the push function, for when their app is
+// closed. Their open app hears about the call over the live channel anyway, so a failure here is quiet.
+function pushCall(type, to, roomKey) {
+  if (!supabase) return;
+  supabase.functions.invoke('push', { body: { type, to, roomKey } }).catch(() => {});
 }
 
 /* ---------------------------- one-to-one calls ---------------------------- */
@@ -163,6 +199,7 @@ export async function startDirectCall(peer) {
     type: 'invite', from: state.user.id, roomKey,
     fromName: state.profile?.full_name || 'Someone', fromAvatarColor: state.profile?.avatar_color, fromAvatarPath: state.profile?.avatar_path,
   });
+  pushCall('call', peer.id, roomKey);
 }
 
 export async function answerDirectCall(invite) {
@@ -294,6 +331,7 @@ async function openDirectOverlay({ role, roomKey, peer }) {
 function endDirectCall() {
   if (pendingInvite && session && session.role === 'host') {
     ringUser(pendingInvite.peer.id, { type: 'cancel', from: state.user.id, roomKey: pendingInvite.roomKey, fromName: state.profile?.full_name || 'Someone' }).catch(() => {});
+    pushCall('cancel', pendingInvite.peer.id, pendingInvite.roomKey);
   }
   if (session) { session.leave(true); session = null; }
   pendingInvite = null;

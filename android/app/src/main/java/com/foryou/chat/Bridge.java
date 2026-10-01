@@ -31,6 +31,24 @@ final class Bridge {
         Store.markNotified(activity); // the background check won't repeat these
     }
 
+    /**
+     * A call that arrived by push while the app was closed or out of sight: the page asks for it once it's
+     * signed in, then answers it ("accept", when Answer was pressed) or shows it ringing ("show").
+     */
+    @JavascriptInterface
+    public String takePendingCall() {
+        if (!activity.isTrustedPage()) return "";
+        JSONObject invite = Store.pendingCall(activity);
+        if (invite == null) return "";
+        String action = Store.pendingAction(activity);
+        Store.clearPendingCall(activity);
+        try {
+            return new JSONObject().put("invite", invite).put("action", action).toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     @JavascriptInterface
     public void requestNotifications() {
         if (activity.isTrustedPage()) activity.runOnUiThread(activity::askNotifications);
@@ -70,6 +88,8 @@ final class Bridge {
             if (!Api.isAllowedBase(url) || key.isEmpty() || !token.matches("[0-9a-f]{64}") || !user.matches("[0-9a-f\\-]{36}")) return;
             Store.saveDevice(activity, url, key, token, user);
             InboxJob.schedule(activity);
+            Push.upload(activity); // send the push token we already have, under the new device code
+            Push.refresh(activity);
         } catch (Exception ignored) {
             // malformed: no background checks until the next sign-in
         }

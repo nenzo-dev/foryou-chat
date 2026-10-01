@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug build only: lets the emulator test deliver a push without Firebase (see ci/emulator-test.sh). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <receiver
+            android:name="com.foryou.chat.DebugPushReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.foryou.chat.TEST_PUSH" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

@@ -36,3 +36,7 @@ export const androidAskNotifications = () => call('requestNotifications');
 export const androidIncomingCall = (roomKey, name) => call('incomingCall', JSON.stringify({ roomKey, name }));
 export const androidEndIncomingCall = (roomKey) => call('endIncomingCall', String(roomKey || ''));
 export const androidInCall = (on) => call('setInCall', !!on);
+// A call that reached the phone by push: { invite, action: 'accept' | 'show' }, or null.
+export function androidTakePendingCall() {
+  try { const raw = call('takePendingCall'); return raw ? JSON.parse(raw) : null; } catch { return null; }
+}

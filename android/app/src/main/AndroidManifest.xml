@@ -19,6 +19,7 @@
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <application
+        android:name=".ForYouApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
@@ -40,6 +41,15 @@
         </activity>
 
         <receiver android:name=".CallActionReceiver" android:exported="false" />
+
+        <!-- Push notifications (Firebase): wakes the app for an incoming call or a new message -->
+        <service
+            android:name=".PushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
 
         <service
             android:name=".InboxJob"

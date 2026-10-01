@@ -99,7 +99,7 @@ We don't sell your information and we don't show ads.
 - Group members see the group's messages.
 - The ForYou administrator can see account details (name, username and email) to deal with suspensions and appeals.
 - The people who run ForYou can reach the database to keep it working. They don't read private messages unless they must, for example to deal with a report or a legal request.
-- Our service providers handle data for us only to run ForYou: Supabase (database, sign-in and file storage), Cloudflare (hosting the app and relaying calls) and Anthropic (AI replies and shortening, only when you use them).
+- Our service providers handle data for us only to run ForYou: Supabase (database, sign-in and file storage), Cloudflare (hosting the app and relaying calls), Google Firebase (delivering notifications to the Android app) and Anthropic (AI replies and shortening, only when you use them).
 
 ## How long we keep it
 
@@ -112,7 +112,8 @@ We don't sell your information and we don't show ads.
 The app shows the same ForYou service, so everything on this page applies to it. On top of that:
 
 - It asks for your camera and microphone for calls, and for permission to show notifications.
-- While you're signed in, it checks for new messages about every 15 minutes when the app is closed, using a private code made for your phone. Signing out deletes that code.
+- When someone calls or messages you, ForYou sends your phone a notification through Google Firebase Cloud Messaging, so it can ring or tell you even when the app is closed. The notification carries the caller's or sender's name and a short preview of the message.
+- While you're signed in, the app also checks for new messages about every 15 minutes when it's closed, using a private code made for your phone. Signing out deletes that code and stops notifications to that phone.
 - It keeps your screen on during a call.
 
 Uninstalling the app deletes everything it stored on your phone.

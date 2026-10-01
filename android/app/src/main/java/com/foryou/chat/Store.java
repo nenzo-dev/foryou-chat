@@ -3,6 +3,8 @@ package com.foryou.chat;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import org.json.JSONObject;
+
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -30,6 +32,7 @@ final class Store {
                 .putString("apiUrl", url).putString("apiKey", key)
                 .putString("deviceToken", token).putString("deviceUser", user)
                 .putString("since", isoNow(0))
+                .putBoolean("pushUploaded", false)
                 .apply();
     }
 
@@ -54,7 +57,59 @@ final class Store {
     }
 
     static void clearDevice(Context c) {
-        prefs(c).edit().remove("apiUrl").remove("apiKey").remove("deviceToken").remove("deviceUser").remove("since").apply();
+        prefs(c).edit().remove("apiUrl").remove("apiKey").remove("deviceToken").remove("deviceUser").remove("since")
+                .putBoolean("pushUploaded", false).apply();
+    }
+
+    // ---------------------------------------------------------------- Firebase push token
+    static void setPushToken(Context c, String token) {
+        if (token.equals(pushToken(c))) return;
+        prefs(c).edit().putString("pushToken", token).putBoolean("pushUploaded", false).apply();
+    }
+
+    static String pushToken(Context c) {
+        return prefs(c).getString("pushToken", "");
+    }
+
+    static boolean pushUploaded(Context c) {
+        return prefs(c).getBoolean("pushUploaded", false);
+    }
+
+    static void setPushUploaded(Context c, boolean v) {
+        prefs(c).edit().putBoolean("pushUploaded", v).apply();
+    }
+
+    // ---------------------------------------------------------------- a call that arrived by push
+    /** The invite from the latest call push, kept briefly so the app can answer it once it opens. */
+    static void savePendingCall(Context c, JSONObject invite) {
+        prefs(c).edit().putString("pendingCall", invite.toString()).putLong("pendingCallAt", System.currentTimeMillis())
+                .remove("pendingAction").apply();
+    }
+
+    /** The waiting call, if it's still recent enough to answer (about a minute). */
+    static JSONObject pendingCall(Context c) {
+        long at = prefs(c).getLong("pendingCallAt", 0);
+        String json = prefs(c).getString("pendingCall", null);
+        if (json == null || System.currentTimeMillis() - at > 60_000) return null;
+        try {
+            return new JSONObject(json);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    static void clearPendingCall(Context c) {
+        prefs(c).edit().remove("pendingCall").remove("pendingCallAt").remove("pendingAction").apply();
+    }
+
+    /** "accept" when Answer was pressed on the ringing notification before the app opened. */
+    static void setPendingAction(Context c, String roomKey, String action) {
+        JSONObject p = pendingCall(c);
+        if (p != null && p.optString("roomKey").equals(roomKey)) prefs(c).edit().putString("pendingAction", action).apply();
+    }
+
+    static String pendingAction(Context c) {
+        return prefs(c).getString("pendingAction", "show");
     }
 
     /** The server time of the last check: only messages after it are new. */

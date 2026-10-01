@@ -99,8 +99,22 @@ public class MainActivity extends Activity {
         web.loadUrl(start);
 
         showOverLockScreen(getIntent().getBooleanExtra(EXTRA_RINGING, false));
+        rememberCallAction(getIntent());
         askForNotificationsOnce();
         if (Store.hasDevice(this)) InboxJob.schedule(this);
+        Push.refresh(this);
+    }
+
+    /**
+     * Answer pressed on a call that arrived by push while the app was closed: the page isn't running yet,
+     * so the choice waits in Store until it asks for it (Bridge.takePendingCall).
+     */
+    private void rememberCallAction(Intent i) {
+        String action = i.getStringExtra(EXTRA_CALL_ACTION), key = i.getStringExtra(EXTRA_ROOM_KEY);
+        if ("accept".equals(action) && key != null && key.matches("[0-9a-f]{32}")) {
+            Notifier.cancelCall(this);
+            Store.setPendingAction(this, key, "accept");
+        }
     }
 
     /** Only links to ForYou's own screens are followed from a notification. */
@@ -124,6 +138,7 @@ public class MainActivity extends Activity {
         String key = intent.getStringExtra(EXTRA_ROOM_KEY);
         if (action != null && key != null && key.matches("[0-9a-f]{32}")) {
             Notifier.cancelCall(this);
+            rememberCallAction(intent);
             callAction(action, key);
         }
     }
@@ -342,6 +357,7 @@ public class MainActivity extends Activity {
             o.put("notifications", notificationsAllowed());
             o.put("fullScreen", Build.VERSION.SDK_INT < 34 || nm.canUseFullScreenIntent());
             o.put("deviceUser", Store.deviceUser(this));
+            o.put("push", Push.enabled() && Store.pushUploaded(this));
         } catch (Exception ignored) {
             // leave whatever was filled in
         }
@@ -407,6 +423,7 @@ public class MainActivity extends Activity {
         visible = true;
         Notifier.cancelMessages(this); // you're looking at ForYou now
         tellPage();
+        runJs("window.__foryouCheckCall&&window.__foryouCheckCall()"); // a call that arrived by push
     }
 
     @Override
