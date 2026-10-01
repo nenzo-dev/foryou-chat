@@ -103,7 +103,11 @@ public class MainActivity extends Activity {
         Intent opened = fresh ? getIntent() : new Intent();
         String start = SITE_URL + hashFrom(opened);
         String test = getIntent().getStringExtra("testUrl");
-        if (debuggable && test != null && test.startsWith(TEST_PREFIX)) start = test;
+        if (debuggable && test == null) test = Store.testUrl(this); // opened by a notification mid-test
+        if (debuggable && test != null && test.startsWith(TEST_PREFIX)) {
+            start = test;
+            Store.setTestUrl(this, test);
+        }
         // Decide trust before loading: a fast page can call the bridge before onPageStarted arrives.
         trusted = trustedUrl(start);
         web.loadUrl(start);

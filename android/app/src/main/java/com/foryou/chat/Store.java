@@ -112,6 +112,16 @@ final class Store {
         return prefs(c).getString("pendingAction", "show");
     }
 
+    // ---------------------------------------------------------------- debug builds under test
+    /** The test page a debug build keeps opening while android/ci/emulator-test.sh runs. */
+    static String testUrl(Context c) {
+        return prefs(c).getString("testUrl", null);
+    }
+
+    static void setTestUrl(Context c, String url) {
+        prefs(c).edit().putString("testUrl", url).apply();
+    }
+
     // ---------------------------------------------------------------- app updates
     /** Where updates come from: the website, or (debug builds under test only) a local server. */
     static String updateBase(Context c) {
