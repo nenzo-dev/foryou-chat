@@ -33,7 +33,8 @@ has_notification() { notifications | grep -qF "$1"; }
 ui_dump() { adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1; adb shell cat /sdcard/ui.xml; }
 tap_text() {
   local bounds
-  bounds=$(ui_dump | tr '>' '\n' | grep -F "text=\"$1\"" | grep -oE 'bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' | head -1)
+  # Any capitalisation: some Android builds show buttons in capitals ("UPDATE").
+  bounds=$(ui_dump | tr '>' '\n' | grep -iF "text=\"$1\"" | grep -oE 'bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' | head -1)
   [ -n "$bounds" ] || return 1
   local x1 y1 x2 y2
   read -r x1 y1 x2 y2 <<<"$(echo "$bounds" | grep -oE '[0-9]+' | tr '\n' ' ')"
