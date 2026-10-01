@@ -5,6 +5,7 @@
 // at sign-up is held in localStorage under their email until then, so it isn't lost in between.
 import { supabase, rpc } from './db.js';
 import { pickColor } from './util.js';
+import { LEGAL_UPDATED } from './legal.js';
 
 const PENDING_KEY = (email) => 'fy_pending_signup:' + email.toLowerCase();
 
@@ -33,8 +34,10 @@ export async function ensureProfile(user) {
   const full_name = pending.full_name || (user.email || '').split('@')[0];
   const username = pending.username || null;
 
+  // Sign-up can't go ahead without ticking the terms box, so a new profile records which version they agreed to.
+  const prefs = { show_online: true, terms_accepted: LEGAL_UPDATED };
   const { data, error } = await supabase.from('profiles').insert({
-    id: user.id, email: user.email, full_name, username, avatar_color: pickColor(user.id),
+    id: user.id, email: user.email, full_name, username, avatar_color: pickColor(user.id), prefs,
   }).select().single();
 
   if (error) {
@@ -42,7 +45,7 @@ export async function ensureProfile(user) {
       // Their username was taken by the time they confirmed -- create the row without one; they can
       // pick a different one in Settings. Not their fault, so this should never lose the account.
       const retry = await supabase.from('profiles').insert({
-        id: user.id, email: user.email, full_name, username: null, avatar_color: pickColor(user.id),
+        id: user.id, email: user.email, full_name, username: null, avatar_color: pickColor(user.id), prefs,
       }).select().single();
       if (retry.error) return { profile: null, error: retry.error.message };
       await claimConfigurerQuietly();

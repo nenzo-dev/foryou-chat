@@ -19,7 +19,7 @@ export function toast(msg, ms = 2600) {
 export function friendlyError(e) {
   if (e && e.show && e.message) return e.message;
   console.error(e);
-  return "Sorry, we ran into a problem. It's not you, it's us. Please try again in a moment.";
+  return "Sorry, we ran into an error. It's not you, it's us. Please try again in a moment.";
 }
 
 export function openModal(innerHtml, { onMount, className = '' } = {}) {

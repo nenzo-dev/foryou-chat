@@ -17,7 +17,7 @@ const chosen = SUPABASE.url && SUPABASE.anonKey ? SUPABASE : savedSetup();
 
 export const CONFIG = {
   shortName: 'ForYou',
-  fullName: 'ForYou — Chat, Connect, Belong',
+  fullName: 'ForYou: Chat, Connect, Belong',
   siteUrl: 'https://foryou-chat.pages.dev/',
   supabase: chosen ? { url: chosen.url.replace(/\/+$/, ''), anonKey: chosen.anonKey } : { url: '', anonKey: '' },
   // STUN discovers a direct path between two devices, which is all that's needed on open WiFi -- but

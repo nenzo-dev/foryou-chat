@@ -7,6 +7,7 @@ import { signIn, signUp } from '../lib/db.js';
 import { isValidEmail, passwordProblem } from '../lib/util.js';
 import { ensureProfile, stashPendingSignup } from '../lib/profile.js';
 import { toast } from '../lib/ui.js';
+import { openLegalSheet } from './legal.js';
 
 const USERNAME_RE = /^[a-z0-9_.]{3,24}$/;
 
@@ -25,9 +26,11 @@ export function renderAuth(root, { onSignedIn }) {
         <div class="auth-tab ${tab === 'signup' ? 'active' : ''}" data-tab="signup">Create account</div>
       </div>
       ${tab === 'signin' ? signinForm() : signupForm()}
+      <p class="auth-legal"><a href="#" data-legal="terms">Terms of use</a><span>·</span><a href="#" data-legal="privacy">Privacy policy</a><span>·</span><a href="#" data-legal="disclaimer">Disclaimer</a></p>
     </div></div>`;
 
     root.querySelectorAll('.auth-tab').forEach((t) => t.addEventListener('click', () => { tab = t.dataset.tab; banner = ''; render(); }));
+    root.querySelectorAll('[data-legal]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); openLegalSheet(a.dataset.legal); }));
     if (tab === 'signin') wireSignin(); else wireSignup();
 
     if (banner) {
@@ -57,6 +60,7 @@ export function renderAuth(root, { onSignedIn }) {
       <input id="su-email" type="email" autocomplete="username">
       <label for="su-password">Password</label>
       <input id="su-password" type="password" autocomplete="new-password">
+      <label class="agree"><input type="checkbox" id="su-agree"><span>I'm 16 or older, and I agree to the <a href="#" data-legal="terms">Terms of use</a> and <a href="#" data-legal="privacy">Privacy policy</a>.</span></label>
       <button class="btn btn-gold btn-block" style="margin-top:16px" id="su-submit">Create account</button>
       <div id="su-msg" class="form-msg"></div>`;
   }
@@ -67,7 +71,7 @@ export function renderAuth(root, { onSignedIn }) {
       if (msgEl) { msgEl.className = 'form-msg err'; msgEl.textContent = error || 'Could not set up your account.'; }
       return;
     }
-    if (profile.is_configurer) toast("You're ForYou's configurer — add the shared AI key any time in Settings.");
+    if (profile.is_configurer) toast("You're ForYou's configurer. You can add the shared AI key any time in Settings.");
     onSignedIn(user, profile);
   }
 
@@ -103,6 +107,7 @@ export function renderAuth(root, { onSignedIn }) {
       if (!isValidEmail(email)) { msg.className = 'form-msg err'; msg.textContent = 'Enter a valid email address.'; return; }
       const pwProblem = passwordProblem(password);
       if (pwProblem) { msg.className = 'form-msg err'; msg.textContent = pwProblem; return; }
+      if (!root.querySelector('#su-agree').checked) { msg.className = 'form-msg err'; msg.textContent = 'Tick the box to agree to the Terms of use and Privacy policy.'; return; }
 
       const btn = root.querySelector('#su-submit');
       btn.disabled = true;

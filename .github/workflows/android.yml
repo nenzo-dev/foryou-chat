@@ -1,0 +1,151 @@
+name: Android app
+
+# Builds the ForYou Android app, tests it on an emulator, and, when it's signed with ForYou's release
+# key, puts it on the website at /app/foryou.apk (the "Get the app" page links to it).
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-app
+  cancel-in-progress: false
+
+env:
+  # SHA-256 of the release signing certificate. Anything signed with a different key is not published.
+  RELEASE_CERT_SHA256: 29d8b79bb65292865a62ac1bacb1f0c4b7b6e75a0eee1954467241a7f049c71e
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      signed: ${{ steps.verify.outputs.signed }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Unpack the release signing key
+        env:
+          ANDROID_SIGNING: ${{ secrets.ANDROID_SIGNING }}
+        run: |
+          if [ -z "$ANDROID_SIGNING" ]; then
+            echo "::warning::The ANDROID_SIGNING secret isn't set, so this build is signed with a throwaway key and won't be published."
+            exit 0
+          fi
+          PASSWORD=$(printf '%s\n' "$ANDROID_SIGNING" | sed -n 1p | tr -d '\r')
+          echo "::add-mask::$PASSWORD"
+          printf '%s\n' "$ANDROID_SIGNING" | sed -n 2p | tr -d '\r' | base64 -d > "$RUNNER_TEMP/release.p12"
+          echo "FORYOU_KEYSTORE=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
+          echo "FORYOU_KEYSTORE_PASSWORD=$PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: gradle -p android --no-daemon assembleDebug assembleRelease
+
+      - name: Check the signature
+        id: verify
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee signature.txt
+          if grep -qi "certificate SHA-256 digest: $RELEASE_CERT_SHA256" signature.txt; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+          rm -f "$RUNNER_TEMP/release.p12"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apks
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/release/*.apk
+          retention-days: 7
+
+  emulator-test:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: apks
+          path: apks
+
+      - name: Enable hardware acceleration for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run the app on an Android 14 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash android/ci/emulator-test.sh apks
+
+      - name: Share screenshots and results
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -d ci-results ] || exit 0
+          gh release view android-ci >/dev/null 2>&1 || gh release create android-ci --prerelease \
+            --title "Android app test results" \
+            --notes "Screenshots and logs from the latest emulator test of the Android app. This is not a download of the app."
+          for f in ci-results/*; do
+            [ -s "$f" ] || continue   # GitHub refuses empty files
+            gh release upload android-ci "$f" --clobber || echo "::warning::could not upload $f"
+          done
+
+  publish:
+    needs: [build, emulator-test]
+    if: needs.build.outputs.signed == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: apks
+          path: apks
+
+      - name: Put the app on the website
+        run: |
+          mkdir -p app
+          cp apks/release/app-release.apk app/foryou.apk
+          NAME=$(grep -oP "versionName '\K[^']+" android/app/build.gradle)
+          CODE=$(grep -oP "versionCode \K[0-9]+" android/app/build.gradle)
+          SIZE=$(stat -c %s app/foryou.apk)
+          SHA=$(sha256sum app/foryou.apk | cut -d' ' -f1)
+          printf '{"versionName":"%s","versionCode":%s,"size":%s,"sha256":"%s","certSha256":"%s"}\n' \
+            "$NAME" "$CODE" "$SIZE" "$SHA" "$RELEASE_CERT_SHA256" > app/android.json
+          cat app/android.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app
+          git diff --cached --quiet && exit 0
+          git commit -m "Android app $NAME (build $CODE)"
+          git pull --rebase origin main
+          git push origin HEAD:main

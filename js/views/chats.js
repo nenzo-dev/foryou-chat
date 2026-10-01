@@ -13,6 +13,8 @@ import { state } from '../state.js';
 let seenMap = {};
 let stopWatchingSeen = null;
 let rows = [];
+let followUps = new Set(); // DMs where AI answered for you and you haven't written since
+let toldAboutFollowUps = false;
 
 export function mountChatList(root) {
   root.innerHTML = `
@@ -74,7 +76,7 @@ export function mountChatList(root) {
 
   async function load() {
     try {
-      const [convs, myRooms] = await Promise.all([rpc('my_conversations'), rpc('my_rooms')]);
+      const [convs, myRooms] = await Promise.all([rpc('my_conversations'), rpc('my_rooms'), loadFollowUps()]);
       rows = [
         ...(convs || []).map((c) => ({
           type: 'dm', id: c.id, otherId: c.other_id, name: c.other_name || c.other_username || 'Someone',
@@ -89,6 +91,22 @@ export function mountChatList(root) {
       renderList(root.querySelector('#cl-search')?.value || '');
     } catch (e) {
       root.querySelector('#cl-rows').innerHTML = `<p class="muted center" style="padding:20px">${escapeHtml(friendlyError(e))}</p>`;
+    }
+  }
+
+  async function loadFollowUps() {
+    const { data } = await supabase.from('messages').select('conversation_id, sent_by_ai, deleted_at')
+      .eq('sender_id', state.user.id).order('created_at', { ascending: false }).limit(300);
+    const seen = new Set(), next = new Set();
+    for (const r of data || []) {
+      if (r.deleted_at || seen.has(r.conversation_id)) continue;
+      seen.add(r.conversation_id);
+      if (r.sent_by_ai) next.add(r.conversation_id);
+    }
+    followUps = next;
+    if (next.size && !toldAboutFollowUps) {
+      toldAboutFollowUps = true;
+      toast(`While you were away, AI replied for you in ${next.size === 1 ? 'a chat' : `${next.size} chats`}. Follow up when you can.`, 5000);
     }
   }
 
@@ -114,7 +132,7 @@ export function mountChatList(root) {
       <div class="list-item${r.unread ? ' unread' : ''}" data-href="${href}" data-id="${r.type}:${r.id}">
         <div class="li-avatar">${avatar}${online ? '<span class="dot-online"></span>' : ''}</div>
         <div class="meta">
-          <div class="top-row"><span class="name">${escapeHtml(r.name)}</span><span class="time">${r.lastAt ? timeAgo(new Date(r.lastAt).getTime()) : ''}</span></div>
+          <div class="top-row"><span class="name">${escapeHtml(r.name)}</span>${r.type === 'dm' && followUps.has(r.id) ? '<span class="pill-followup">Follow up</span>' : ''}<span class="time">${r.lastAt ? timeAgo(new Date(r.lastAt).getTime()) : ''}</span></div>
           <div class="top-row"><span class="preview${muted ? ' faint' : ''}">${escapeHtml(r.preview || 'No messages yet')}</span>${r.unread ? `<span class="badge">${r.unread > 99 ? '99+' : r.unread}</span>` : ''}</div>
         </div>
       </div>`;
@@ -134,7 +152,7 @@ export function mountChatList(root) {
 async function openNewChatModal() {
   const modal = openModal(`
     <h3>New chat</h3>
-    <p class="muted small">Everyone on ForYou — tap someone to start chatting.</p>
+    <p class="muted small">Everyone on ForYou. Tap someone to start chatting.</p>
     <input id="nc-search" type="search" placeholder="Search by name or username">
     <div id="nc-result" style="margin-top:10px;max-height:320px;overflow-y:auto"></div>
     <div style="margin:18px 0;border-top:1px solid var(--border)"></div>

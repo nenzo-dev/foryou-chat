@@ -53,7 +53,7 @@ export async function mountSettings(root) {
         <div class="toggle-row">
           <div>
             <div class="label">Reply for me</div>
-            <div class="hint">When you're away, the AI can reply in messages sent to you, written in your own style learned from your past messages. It's off until you turn it on — and while it's on, it may keep chatting with other people even while you're busy on a call or in another conversation. Every AI-sent reply is clearly labelled "Auto-reply" so the other person always knows.</div>
+            <div class="hint">When you're away from ForYou, AI can answer messages sent to you, in a style learned from your own past messages. Every reply it sends is labelled as written by AI, and ForYou reminds you to follow up when you're back. It's off until you turn it on.</div>
           </div>
           <label class="switch"><input type="checkbox" id="st-ai-reply" ${me.ai_auto_reply ? 'checked' : ''}><span class="track"><span class="thumb"></span></span></label>
         </div>
@@ -89,6 +89,14 @@ export async function mountSettings(root) {
       </div>
 
       <div class="settings-section">
+        <h4>Help and legal</h4>
+        <button class="settings-link" id="st-contact" type="button">Contact ForYou<span>Send the ForYou team a message</span></button>
+        <a class="settings-link" href="#/legal/terms">Terms of use</a>
+        <a class="settings-link" href="#/legal/privacy">Privacy policy</a>
+        <a class="settings-link" href="#/legal/disclaimer">Disclaimer</a>
+      </div>
+
+      <div class="settings-section">
         <button class="btn btn-danger btn-block" id="st-signout">Sign out</button>
       </div>
     </div>`;
@@ -108,6 +116,7 @@ export async function mountSettings(root) {
     root.querySelector('#st-notif-btn').addEventListener('click', enableNotifications);
     root.querySelector('#st-install').addEventListener('click', () => { location.hash = '#/install'; });
     root.querySelector('#st-signout').addEventListener('click', async () => { await signOut(); });
+    root.querySelector('#st-contact').addEventListener('click', contactTeam);
     const saveAi = root.querySelector('#st-save-ai');
     if (saveAi) saveAi.addEventListener('click', saveAiKey);
     const adminBtn = root.querySelector('#st-admin');
@@ -194,7 +203,7 @@ export async function mountSettings(root) {
     try {
       const rows = await rpc('ai_key_status');
       const s = rows && rows[0];
-      el.textContent = s && s.configured ? `Configured (${s.provider}${s.model ? ', ' + s.model : ''})` : 'Not configured yet — replies stay off for everyone until this is set.';
+      el.textContent = s && s.configured ? `Configured (${s.provider}${s.model ? ', ' + s.model : ''})` : 'Not set up yet. Auto-replies stay off for everyone until a key is saved.';
     } catch { el.textContent = ''; }
   }
 
@@ -216,8 +225,20 @@ export async function mountSettings(root) {
     const btn = root.querySelector('#st-notif-btn');
     if (!notifySupported()) { el.textContent = 'Not supported in this browser.'; btn.disabled = true; return; }
     const p = notifyPermission();
-    el.textContent = p === 'granted' ? 'Enabled.' : p === 'denied' ? 'Blocked — allow notifications for this site in your browser settings.' : 'Get notified about new messages and calls when the app is in the background.';
+    el.textContent = p === 'granted' ? 'On.' : p === 'denied' ? 'Blocked. Allow notifications for ForYou in your browser or phone settings.' : 'Get told about new messages and calls when ForYou is in the background.';
     btn.disabled = p !== 'default';
+  }
+
+  // "Contact ForYou" opens a chat with the app's administrator (the configurer account).
+  async function contactTeam() {
+    try {
+      const { data } = await supabase.from('profiles').select('id').eq('is_configurer', true).limit(1);
+      const admin = data && data[0];
+      if (!admin) { toast("There's no one to contact yet."); return; }
+      if (admin.id === me.id) { toast("You're the ForYou administrator, so messages to the team come to you."); return; }
+      const cid = await rpc('ensure_conversation', { p_other: admin.id });
+      location.hash = `#/chat/${encodeURIComponent(cid)}`;
+    } catch (e) { toast(friendlyError(e)); }
   }
 
   async function enableNotifications() {

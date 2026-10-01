@@ -12,6 +12,7 @@ import { isPhone } from '../lib/callhealth.js';
 import { toast, friendlyError } from '../lib/ui.js';
 import { initials, duration, escapeHtml, pickColor, cssColor } from '../lib/util.js';
 import { ICON } from '../lib/icons.js';
+import { inAndroidApp, androidIncomingCall, androidEndIncomingCall, androidInCall } from '../lib/android.js';
 import { state } from '../state.js';
 
 let overlay = null;
@@ -98,7 +99,8 @@ function showIncomingAlert(payload) {
   // The custom two-tone ring (js/lib/ringtone.js) only plays while this tab is actually open and its
   // audio isn't suspended -- a real OS notification is what gets the phone's own ringtone/notification
   // sound and vibration to fire even when the app is backgrounded or another tab is in front.
-  notify('Incoming video call', (payload.fromName || 'Someone') + ' is calling you', 'foryou-incoming-call');
+  if (inAndroidApp()) androidIncomingCall(payload.roomKey, payload.fromName || 'Someone');
+  else notify('Incoming video call', (payload.fromName || 'Someone') + ' is calling you', 'foryou-incoming-call');
   const caller = { id: payload.from, full_name: payload.fromName || 'Someone', avatar_color: payload.fromAvatarColor, avatar_path: payload.fromAvatarPath };
   incomingAlertEl = document.createElement('div');
   incomingAlertEl.className = 'call-overlay incoming';
@@ -116,13 +118,20 @@ function showIncomingAlert(payload) {
       <div class="ia"><button class="dock-btn accept big" id="ic-accept" aria-label="Accept">${ICON.video}</button><span>Accept</span></div>
     </div>`;
   document.body.appendChild(incomingAlertEl);
-  incomingAlertEl.querySelector('#ic-decline').onclick = () => {
+  const decline = () => {
     ringUser(payload.from, { type: 'decline', from: state.user.id, roomKey: payload.roomKey });
     dismissIncomingAlert();
   };
-  incomingAlertEl.querySelector('#ic-accept').onclick = () => {
+  const accept = () => {
     dismissIncomingAlert();
     answerDirectCall(payload);
+  };
+  incomingAlertEl.querySelector('#ic-decline').onclick = decline;
+  incomingAlertEl.querySelector('#ic-accept').onclick = accept;
+  // Answer / Decline pressed on the Android app's own ringing screen.
+  window.__foryouCall = (action, roomKey) => {
+    if (!incomingAlertEl || roomKey !== payload.roomKey) return;
+    if (action === 'accept') accept(); else if (action === 'decline') decline();
   };
   clearTimeout(incomingTimer);
   incomingTimer = setTimeout(() => { if (incomingAlertEl && incomingAlertEl.dataset.roomKey === payload.roomKey) dismissIncomingAlert(); }, RING_TIMEOUT_MS + 5000);
@@ -132,6 +141,7 @@ function dismissIncomingAlert() {
   stopRing();
   clearTimeout(incomingTimer);
   if (incomingAlertEl) {
+    androidEndIncomingCall(incomingAlertEl.dataset.roomKey);
     const node = incomingAlertEl;
     incomingAlertEl = null;
     node.classList.add('closing');
@@ -191,9 +201,13 @@ async function openDirectOverlay({ role, roomKey, peer }) {
       <button class="dock-btn end" id="call-end" aria-label="End call">${ICON.phoneDown}</button>
     </div>`;
   root.classList.remove('hidden');
+  androidInCall(true);
   unmuteOnTap(root);
   wireIdle(root);
-  makeDraggable(root.querySelector('#call-pip'));
+  // Tap the small picture to swap it with the big one; tap the small one again to swap back.
+  const swap = () => { if (root.dataset.phase === 'live' || root.classList.contains('swapped')) root.classList.toggle('swapped'); };
+  makeDraggable(root.querySelector('#call-pip'), { onTap: swap, canDrag: () => !root.classList.contains('swapped') });
+  root.querySelector('#call-remote').addEventListener('click', (e) => { if (root.classList.contains('swapped')) { e.stopPropagation(); swap(); } });
 
   let media;
   try { media = await getLocalMedia({}); }
@@ -309,6 +323,7 @@ export async function startGroupCall(room) {
       <button class="dock-btn end" id="call-end" aria-label="Leave call">${ICON.phoneDown}</button>
     </div>`;
   root.classList.remove('hidden');
+  androidInCall(true);
   unmuteOnTap(root);
 
   let media;
@@ -327,8 +342,18 @@ export async function startGroupCall(room) {
   grid.appendChild(meTile.el);
   cleanups.push(() => meTile.stopLevel());
 
+  // Tap someone to give them the big screen, with everyone else in a row underneath; tap again to go back.
+  function focusTile(tileEl) {
+    const on = !tileEl.classList.contains('focused');
+    grid.querySelectorAll('.tile.focused').forEach((x) => x.classList.remove('focused'));
+    if (on) tileEl.classList.add('focused');
+    grid.classList.toggle('spotlight', on);
+    grid.style.setProperty('--strip', String(Math.max(1, grid.children.length - 1)));
+  }
+
   function makeTile({ id, name, person, self }) {
     const t = document.createElement('div');
+    t.addEventListener('click', () => focusTile(t));
     t.className = 'tile' + (self ? ' self' : '');
     t.innerHTML = `<video autoplay playsinline ${self ? 'muted' : ''}></video>
       <div class="tile-off">${avatarHtml({ ...person, id, full_name: name }, 'lg')}</div>
@@ -338,7 +363,12 @@ export async function startGroupCall(room) {
 
   const renderGrid = (peers) => {
     const ids = new Set(peers.map((p) => p.id));
-    for (const [id, t] of tiles) if (!ids.has(id)) { t.stopLevel(); t.el.remove(); tiles.delete(id); }
+    for (const [id, t] of tiles) {
+      if (ids.has(id)) continue;
+      if (t.el.classList.contains('focused')) grid.classList.remove('spotlight');
+      t.stopLevel(); t.el.remove(); tiles.delete(id);
+    }
+    grid.style.setProperty('--strip', String(Math.max(1, peers.length)));
     for (const p of peers) {
       let t = tiles.get(p.id);
       if (!t) { t = makeTile({ id: p.id, name: p.name || 'Guest', person: {} }); tiles.set(p.id, t); grid.appendChild(t.el); }
@@ -428,23 +458,31 @@ function wireIdle(root) {
   cleanups.push(() => clearTimeout(t));
 }
 
-// The small self-view can be dragged anywhere and settles in the nearest corner.
-export function makeDraggable(pip) {
+// The small self-view can be dragged anywhere and settles in the nearest corner. A tap (a press that
+// barely moves) calls onTap instead.
+export function makeDraggable(pip, { onTap, canDrag } = {}) {
   if (!pip) return;
-  let sx = 0, sy = 0, ox = 0, oy = 0, dragging = false;
+  let sx = 0, sy = 0, ox = 0, oy = 0, down = false, dragging = false;
   pip.addEventListener('pointerdown', (e) => {
-    dragging = true; pip.setPointerCapture(e.pointerId);
+    down = true; dragging = false;
     const r = pip.getBoundingClientRect();
     sx = e.clientX; sy = e.clientY; ox = r.left; oy = r.top;
-    pip.classList.add('dragging');
   });
   pip.addEventListener('pointermove', (e) => {
-    if (!dragging) return;
+    if (!down) return;
+    if (!dragging) {
+      if (Math.hypot(e.clientX - sx, e.clientY - sy) < 8 || (canDrag && !canDrag())) return;
+      dragging = true;
+      pip.setPointerCapture(e.pointerId);
+      pip.classList.add('dragging');
+    }
     pip.style.left = ox + e.clientX - sx + 'px'; pip.style.top = oy + e.clientY - sy + 'px';
     pip.style.right = 'auto'; pip.style.bottom = 'auto';
   });
-  const drop = () => {
-    if (!dragging) return;
+  const drop = (e) => {
+    if (!down) return;
+    down = false;
+    if (!dragging) { if (onTap && e.type === 'pointerup') { e.stopPropagation(); onTap(); } return; }
     dragging = false;
     pip.classList.remove('dragging');
     const r = pip.getBoundingClientRect();
@@ -457,6 +495,7 @@ export function makeDraggable(pip) {
 }
 
 function closeOverlay() {
+  androidInCall(false);
   timers.forEach((t) => { clearTimeout(t); clearInterval(t); });
   timers = [];
   cleanups.forEach((fn) => { try { fn(); } catch { /* ignore */ } });
@@ -465,7 +504,7 @@ function closeOverlay() {
   if (overlay) {
     const node = overlay, seq = ++overlaySeq;
     node.classList.add('closing');
-    setTimeout(() => { if (seq !== overlaySeq) return; node.classList.add('hidden'); node.classList.remove('closing', 'idle'); node.innerHTML = ''; }, 200);
+    setTimeout(() => { if (seq !== overlaySeq) return; node.classList.add('hidden'); node.classList.remove('closing', 'idle', 'swapped'); node.innerHTML = ''; }, 200);
   }
   session = null; group = null; pendingInvite = null;
 }

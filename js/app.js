@@ -5,7 +5,9 @@ import { startLive, stopLive, onLive } from './lib/live.js';
 import { startSeen } from './lib/seen.js';
 import { startRingListener, stopRingListener } from './lib/ring.js';
 import { requestNotifyPermission, notifyPermission, notifySupported, notify } from './lib/notify.js';
-import { toast, showPane } from './lib/ui.js';
+import { toast, showPane, openModal, closeModal } from './lib/ui.js';
+import { registerAndroidDevice, androidSignedOut } from './lib/android.js';
+import { LEGAL_UPDATED } from './lib/legal.js';
 import { ensureProfile } from './lib/profile.js';
 import { state } from './state.js';
 import { renderAuth } from './views/auth.js';
@@ -19,6 +21,7 @@ import { mountAdmin } from './views/admin.js';
 import { mountDates } from './views/dates.js';
 import { mountDate } from './views/date.js';
 import { renderSuspended } from './views/suspended.js';
+import { mountLegal, openLegalSheet } from './views/legal.js';
 import { handleRingEvent } from './views/callui.js';
 
 const app = document.getElementById('app');
@@ -49,8 +52,13 @@ async function boot() {
     </div></div>`;
     return;
   }
-  supabase.auth.onAuthStateChange((event) => {
-    if (event === 'SIGNED_OUT') showAuth();
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_OUT') { showAuth(); return; }
+    // Signing in to another account in a second tab of the same browser replaces the session here too.
+    // Carrying on as the old account would send messages as the new one (and show your own messages on
+    // the wrong side), so start again as whoever is signed in now.
+    const id = session && session.user && session.user.id;
+    if (id && state.user && id !== state.user.id) location.reload();
   });
   const user = await currentUser();
   if (!user) { showAuth(); return; }
@@ -74,21 +82,45 @@ function currentOpenThread() {
   return null;
 }
 
-// A message notification only fires when you're not already looking straight at that conversation.
+// Names for notifications, looked up once each.
+const names = new Map();
+async function lookup(table, id, column) {
+  const k = table + ':' + id;
+  if (!names.has(k)) {
+    names.set(k, supabase.from(table).select(column).eq('id', id).single()
+      .then(({ data }) => (data && data[column]) || '').catch(() => ''));
+  }
+  return names.get(k);
+}
+
+const previewOf = (row) => {
+  const t = (row.attachment && row.attachment.type) || '';
+  const text = row.body || (t.startsWith('audio/') ? 'Voice message' : t.startsWith('image/') ? 'Photo' : 'Sent a file');
+  return (row.sent_by_ai ? 'AI auto-reply: ' : '') + text;
+};
+
+// A new message tells you about itself unless you're already looking straight at that conversation:
+// a small banner while ForYou is on screen, a phone/computer notification when it isn't.
 function wireMessageNotifications() {
-  offMsgNotify = onLive('messages', (payload) => {
+  const announce = (title, body, tag, hash) => {
+    if (document.visibilityState === 'visible') toast(`${title}: ${body}`, 3200);
+    else notify(title, body, tag, hash);
+  };
+  offMsgNotify = onLive('messages', async (payload) => {
     const row = payload.new;
     if (!row || payload.eventType !== 'INSERT' || row.sender_id === state.user.id) return;
     const open = currentOpenThread();
     if (open && open.type === 'dm' && open.id === row.conversation_id && document.visibilityState === 'visible') return;
-    notify('New message', row.body || 'Sent an attachment', 'foryou-dm-' + row.conversation_id);
+    const name = (await lookup('profiles', row.sender_id, 'full_name')) || 'New message';
+    announce(name, previewOf(row), 'foryou-dm-' + row.conversation_id, '#/chat/' + encodeURIComponent(row.conversation_id));
   });
-  offRoomMsgNotify = onLive('room_messages', (payload) => {
+  offRoomMsgNotify = onLive('room_messages', async (payload) => {
     const row = payload.new;
     if (!row || payload.eventType !== 'INSERT' || row.sender_id === state.user.id) return;
     const open = currentOpenThread();
     if (open && open.type === 'room' && open.id === row.room_id && document.visibilityState === 'visible') return;
-    notify('New group message', row.body || 'Sent an attachment', 'foryou-room-' + row.room_id);
+    const [room, who] = await Promise.all([lookup('rooms', row.room_id, 'name'), lookup('profiles', row.sender_id, 'full_name')]);
+    announce(room || 'New group message', `${who ? who.split(' ')[0] + ': ' : ''}${previewOf(row)}`, 'foryou-room-' + row.room_id, '#/room/' + row.room_id);
   });
 }
 
@@ -96,8 +128,33 @@ function showAuth() {
   const wasSignedIn = !!state.user;
   state.user = null; state.profile = null;
   teardownSession();
+  if (wasSignedIn) androidSignedOut();
   renderAuth(app, { onSignedIn: (user, profile) => enterApp(user, profile) });
-  if (wasSignedIn) location.hash = '';
+  const legal = (location.hash || '').match(/^#\/legal\/(terms|privacy|disclaimer)$/);
+  if (legal) openLegalSheet(legal[1]);
+  else if (wasSignedIn) location.hash = '';
+}
+
+// Accounts made before the terms existed are asked once to read and agree to them.
+function askToAcceptTerms() {
+  const prefs = (state.profile && state.profile.prefs) || {};
+  if (prefs.terms_accepted) return;
+  const modal = openModal(`
+    <div class="terms-prompt">
+      <h3>Terms, privacy and AI</h3>
+      <p class="muted small">ForYou now has Terms of use, a Privacy policy and a Disclaimer. They cover how your messages are handled, AI replies and Blind Dates. Please read them, then tap "I agree" to carry on.</p>
+      <div class="terms-links">
+        <a href="#" data-legal="terms">Terms of use</a><a href="#" data-legal="privacy">Privacy policy</a><a href="#" data-legal="disclaimer">Disclaimer</a>
+      </div>
+      <button class="btn btn-gold btn-block" id="tp-agree">I agree</button>
+    </div>`);
+  modal.querySelectorAll('[data-legal]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); openLegalSheet(a.dataset.legal); }));
+  modal.querySelector('#tp-agree').addEventListener('click', async () => {
+    const next = { ...prefs, terms_accepted: LEGAL_UPDATED };
+    const { error } = await supabase.from('profiles').update({ prefs: next }).eq('id', state.user.id);
+    if (!error) state.profile.prefs = next;
+    closeModal();
+  });
 }
 
 export async function refreshMyProfile() {
@@ -124,7 +181,9 @@ async function enterApp(user, knownProfile) {
   stopSeen = startSeen();
   startRingListener(user.id, handleRingEvent);
   nudgeNotifications();
+  registerAndroidDevice(user);
   route();
+  askToAcceptTerms();
 }
 
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
@@ -180,6 +239,9 @@ async function route() {
   } else if ((m = hash.match(/^#\/date\/([0-9a-f-]{36})$/))) {
     showPane('thread');
     disposeThread = await mountDate(threadEl(), m[1]);
+  } else if ((m = hash.match(/^#\/legal\/(terms|privacy|disclaimer)$/))) {
+    showPane('thread');
+    disposeThread = await mountLegal(threadEl(), m[1]);
   } else if (hash === '#/settings') {
     showPane('thread');
     disposeThread = await mountSettings(threadEl());

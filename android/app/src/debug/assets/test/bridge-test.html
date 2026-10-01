@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ForYou bridge test</title>
+<style>body { background: #07070a; color: #f5f4f0; font-family: monospace; padding: 16px; } pre { white-space: pre-wrap; }</style>
+</head>
+<body>
+<h3>ForYou bridge test (debug build only)</h3>
+<pre id="out"></pre>
+<script>
+  // Exercises window.ForYouAndroid the way the web app does. Run by android/ci/emulator-test.sh.
+  var out = document.getElementById('out');
+  function log(s) { out.textContent += s + '\n'; console.log(s); }
+  var b = window.ForYouAndroid;
+  if (!b) { log('NO BRIDGE'); }
+  else {
+    log('info ' + b.info());
+    // The page isn't "visible" once the test sends the app to the background, so these show.
+    setTimeout(function () {
+      b.notify('Test Ann', 'Hello from the bridge test', 'foryou-dm-test', '#/chat/test');
+      log('notified');
+      b.incomingCall(JSON.stringify({ roomKey: '0123456789abcdef0123456789abcdef', name: 'Test Caller' }));
+      log('ringing');
+    }, 6000);
+    setTimeout(function () { b.endIncomingCall('0123456789abcdef0123456789abcdef'); log('call ended'); }, 30000);
+    b.registerDevice(JSON.stringify({ url: 'https://test-not-a-real-project.supabase.co', key: 'test-key', token: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', user: '00000000-0000-0000-0000-000000000001' }));
+    log('device registered');
+    b.setInCall(true);
+    log('in call');
+  }
+</script>
+</body>
+</html>

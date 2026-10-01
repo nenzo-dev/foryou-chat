@@ -39,6 +39,7 @@ export async function mountThread(host, { kind, id, folder, me, nameFor, avatarF
   const K = KINDS[kind];
   host.innerHTML = `
     <div class="thread-body">
+      <div class="followup-banner hidden" role="status"></div>
       <div class="messages" role="log" aria-live="polite"></div>
       <button class="jump-new hidden" type="button" aria-label="Go to newest message"><span class="jn-count"></span>${ICON.back}</button>
     </div>
@@ -122,6 +123,37 @@ export async function mountThread(host, { kind, id, folder, me, nameFor, avatarF
     listEl.querySelectorAll('.msg-row').forEach(wireRow);
     const more = listEl.querySelector('.load-earlier button');
     if (more) more.addEventListener('click', loadEarlier);
+    paintFollowUp();
+  }
+
+  // If AI answered for you while you were away and you haven't written anything yourself since, a
+  // banner asks you to read what it said and follow up. Sending your own message clears it.
+  function paintFollowUp() {
+    const banner = host.querySelector('.followup-banner');
+    if (kind !== 'dm') return;
+    let pending = [];
+    for (const m of messages) {
+      if (m.sender_id !== me || m.deleted_at) continue;
+      if (m.sent_by_ai) pending.push(m); else pending = [];
+    }
+    const key = 'fy_followup_' + id;
+    let dismissed = '';
+    try { dismissed = localStorage.getItem(key) || ''; } catch { /* storage unavailable */ }
+    const last = pending[pending.length - 1];
+    if (!last || dismissed === last.id) { banner.classList.add('hidden'); return; }
+    const other = messages.find((m) => m.sender_id !== me);
+    const who = other ? String(nameFor(other.sender_id)).split(' ')[0] : 'them';
+    const n = pending.length;
+    banner.innerHTML = `<span class="fb-ic">${ICON.sparkle}</span>
+      <span class="fb-txt"><b>AI replied for you while you were away</b><span>It sent ${who} ${n === 1 ? 'a reply' : `${n} replies`}. Read ${n === 1 ? 'it' : 'them'} and follow up.</span></span>
+      <button type="button" class="btn btn-gold btn-sm fb-show">Show</button>
+      <button type="button" class="fb-close" aria-label="Dismiss">${ICON.close}</button>`;
+    banner.classList.remove('hidden');
+    banner.querySelector('.fb-show').onclick = () => jumpToMessage(listEl, pending[0].id);
+    banner.querySelector('.fb-close').onclick = () => {
+      try { localStorage.setItem(key, last.id); } catch { /* storage unavailable */ }
+      banner.classList.add('hidden');
+    };
   }
 
   async function loadEarlier(e) {

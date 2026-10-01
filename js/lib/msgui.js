@@ -85,10 +85,17 @@ function renderMessage(m, o) {
   if (deleted) {
     inner += `<span class="deleted-note">${ICON.ban}<span>${mine ? 'You deleted this message' : 'This message was deleted'}</span></span>`;
   } else {
-    if (m.sent_by_ai) inner += '<span class="ai-badge">Auto-reply</span>';
+    if (m.sent_by_ai) inner += `<span class="ai-badge">${ICON.sparkle}AI auto-reply</span>`;
     if (m.reply_to_id) inner += renderReplyQuote(o.byId[m.reply_to_id], o);
     if (m.attachment) inner += renderAttachment(m.attachment, m.id);
     if (m.body) inner += `<span class="text">${richText(m.body)}</span>`;
+    // AI replies always say so, and say that the real person still owes a proper answer.
+    if (m.sent_by_ai) {
+      const first = escapeHtml(String(o.nameFor(m.sender_id) || '').split(' ')[0] || 'They');
+      inner += `<span class="ai-note">${mine
+        ? 'Written by AI for you while you were away. Read it and follow up.'
+        : `Written by AI while ${first} was away, so it may not be accurate. ${first} will follow up.`}</span>`;
+    }
   }
   const time = fmtTime(new Date(m.created_at).getTime(), TZ);
   const meta = `<span class="meta">${m.edited_at && !deleted ? '<span class="edited">edited</span>' : ''}<time>${time}</time>${o.ticks && mine && !deleted ? renderTicks(m) : ''}</span>`;

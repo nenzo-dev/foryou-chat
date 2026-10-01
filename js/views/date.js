@@ -19,6 +19,7 @@ import { toast, friendlyError, choose } from '../lib/ui.js';
 import { escapeHtml, initials, duration, cssColor } from '../lib/util.js';
 import { ICON } from '../lib/icons.js';
 import { state } from '../state.js';
+import { androidInCall } from '../lib/android.js';
 
 const BEAT_MS = 10000;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -99,8 +100,21 @@ export async function mountDate(root, dateId) {
     root.querySelector('#bj-go').addEventListener('click', (e) => { if (role) { e.currentTarget.disabled = true; e.currentTarget.textContent = 'Getting your camera ready…'; enter(role); } });
   }
 
+  // The first time someone takes a seat, they confirm they're 18 or older and know the basic rules.
+  async function agreeToRules() {
+    try { if (localStorage.getItem('fy_bd_rules') === '1') return true; } catch { /* storage unavailable */ }
+    const ok = await choose({
+      title: 'Before your first blind date',
+      text: "Blind dates are for people aged 18 and over. Be kind, don't record or screenshot anyone, and leave whenever you like. If you meet in person, meet somewhere public. These are part of the Terms of use.",
+      actions: [{ id: 'yes', label: "I'm 18 or older, let's go" }],
+    });
+    if (ok) { try { localStorage.setItem('fy_bd_rules', '1'); } catch { /* storage unavailable */ } }
+    return !!ok;
+  }
+
   async function enter(role) {
     if (isBusy()) { toast('Finish your call first, then come back to the date.'); if (!info.my_role) paintJoin(); return; }
+    if (!(await agreeToRules())) { if (info.my_role) location.hash = '#/dates'; else paintJoin(); return; }
     const sup = mediaSupport();
     if (!sup.getUserMedia || !sup.peer) { if (!info.my_role) paintJoin("This browser can't do video calls. Try Chrome, Edge, Firefox or Safari."); return; }
     let media;
@@ -134,6 +148,7 @@ export async function mountDate(root, dateId) {
     const myRole = joined.role;
     const call = new DateCall({ seat: joined.seat, role: myRole, revealed: first.revealed });
     setBusyElsewhere(true);
+    androidInCall(true);
     let st = first, left = false, startedAt = null, revealShown = first.revealed, beatTimer = null, soonTimer = null;
     const audioEls = new Map();   // seat -> <audio>
     const watchers = new Map();   // seat -> { key, stop }
@@ -208,7 +223,18 @@ export async function mountDate(root, dateId) {
     orbV.srcObject = media.stream;
     $('#bd-v-me-hi').textContent = initials((state.profile && state.profile.full_name) || 'You');
     if (!media.hasVideo) { $('#bd-self').classList.add('off'); $('#bd-v-me').classList.add('off'); }
-    makeDraggable($('#bd-self'));
+    // Tap your own picture to swap it with your date's (after the reveal); tap the small one to swap back.
+    const swap = () => { if ((myRole === 'dater' && stage.dataset.phase === 'revealed') || stage.classList.contains('swapped')) stage.classList.toggle('swapped'); };
+    makeDraggable($('#bd-self'), { onTap: swap, canDrag: () => !stage.classList.contains('swapped') });
+    $('.bd-seen').addEventListener('click', () => { if (stage.classList.contains('swapped')) swap(); });
+    // The host can tap a dater to make them bigger, and tap again to go back.
+    [0, 1].forEach((i) => $(`#bd-t${i}`).addEventListener('click', () => {
+      const t = $(`#bd-t${i}`);
+      const on = !t.classList.contains('focused') && !t.classList.contains('empty');
+      stage.querySelectorAll('.bd-tile.focused').forEach((x) => x.classList.remove('focused'));
+      if (on) t.classList.add('focused');
+      $('.bd-pair').classList.toggle('spotlight', on);
+    }));
     stage.addEventListener('click', () => { audioContext(); });
 
     wireDock(stage, {
@@ -491,6 +517,7 @@ export async function mountDate(root, dateId) {
       call.leave();
       media.stream.getTracks().forEach((t) => t.stop());
       setBusyElsewhere(false);
+      androidInCall(false);
       if (!skipLeave) leaveDate(dateId).catch(() => {});
       if (!keepStage) stage.remove();
     }
