@@ -40,6 +40,10 @@ tap_text() {
   adb shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2))
 }
 no_notification() { ! has_notification "$1"; }
+# The ringing call itself (tag "call", id 1). A missed-call note can still name the caller.
+ringing() { notifications | grep -qE "\|$DBG\|1\|call\||pkg=$DBG user=[^ ]+ id=1 tag=call "; }
+not_ringing() { ! ringing; }
+page_log() { adb logcat -d -s ForYou:V | grep -qF "$1"; }
 
 adb wait-for-device
 adb shell settings put system screen_off_timeout 1800000
@@ -92,13 +96,22 @@ sleep 8
 adb logcat -d -s ForYou:V > "$OUT/debug-log.txt"
 if grep -qE "Inbox check (failed|scheduled)|Inbox checked" "$OUT/debug-log.txt"; then pass "background inbox check runs"; else fail "background inbox check did not run"; fi
 
-if wait_for 40 no_notification "Test Caller"; then pass "ringing stops when the call ends"; else fail "ringing did not stop"; fi
+# Out of sight, Android soon pauses the page (that's why calls also come by push). Back on screen it
+# carries on and ends the call, and the ringing must stop.
+adb shell am start -n "$DBG/com.foryou.chat.MainActivity" >/dev/null
+if wait_for 40 page_log "page: call ended" && wait_for 10 not_ringing; then pass "ringing stops when the call ends"; else fail "ringing did not stop"; fi
 shot 04-after-call
 
 # ---------------------------------------------------------------- 3. pushes with the app closed
 # A Firebase push starts the app's process by itself; the debug build's test receiver does the same
 # with an adb broadcast, and hands the push to the same code.
-push() { adb shell am broadcast -a com.foryou.chat.TEST_PUSH -n "$DBG/com.foryou.chat.DebugPushReceiver" "$@" >/dev/null; }
+# adb shell runs one command line on the phone, so each value is quoted again for the phone's shell
+# (none of them contain a single quote).
+push() {
+  local a line="am broadcast -a com.foryou.chat.TEST_PUSH -n $DBG/com.foryou.chat.DebugPushReceiver"
+  for a in "$@"; do line="$line '$a'"; done
+  adb shell "$line" >/dev/null
+}
 close_app() {
   adb shell input keyevent KEYCODE_HOME
   sleep 2
@@ -119,7 +132,7 @@ sleep 2
 shot 05-push-call
 adb shell cmd statusbar collapse
 push --es type cancel --es roomKey "$KEY" --es fromName "Push Caller"
-if wait_for 20 no_notification "Push Caller"; then pass "cancelled call stops ringing"; else fail "cancelled call kept ringing"; fi
+if wait_for 20 not_ringing; then pass "cancelled call stops ringing"; else fail "cancelled call kept ringing"; fi
 if wait_for 10 has_notification "Missed video call"; then pass "missed call is shown"; else fail "missed call not shown"; fi
 
 if close_app; then :; fi
@@ -135,6 +148,9 @@ sleep 2
 if tap_text "Answer" || tap_text "ANSWER"; then
   sleep 5
   if adb shell dumpsys window | grep -E "mCurrentFocus" | grep -q "$DBG/"; then pass "Answer opens the app"; else fail "Answer did not open the app"; fi
+  # The page picks up the answered call (in ForYou itself, it then joins it).
+  if wait_for 20 page_log '"action":"accept"'; then pass "the page gets the answered call"; else fail "the page did not get the answered call"; fi
+  if not_ringing; then pass "ringing stops after Answer"; else fail "still ringing after Answer"; fi
 else
   fail "could not find the Answer button"
 fi
@@ -155,7 +171,7 @@ SERVER=$!
 sleep 2
 adb shell appops set "$DBG" REQUEST_INSTALL_PACKAGES allow
 before_update=$(adb shell dumpsys package "$DBG" | grep -m1 lastUpdateTime | tr -d '\r')
-close_app || true   # the update settings are read when the app starts
+adb shell am force-stop "$DBG"   # a fresh start that reads the test's update settings
 adb logcat -c
 adb shell am start -W -n "$DBG/com.foryou.chat.MainActivity" --es testUrl file:///android_asset/test/bridge-test.html \
   --es updateBase http://10.0.2.2:8000/ --ez autoUpdate true >/dev/null

@@ -17,6 +17,8 @@
   if (!b) { log('NO BRIDGE'); }
   else {
     log('info ' + b.info());
+    // A call that came by push and was answered from the notification waits here for the page.
+    log('pending ' + (b.takePendingCall() || 'none'));
     // The page isn't "visible" once the test sends the app to the background, so these show.
     setTimeout(function () {
       b.notify('Test Ann', 'Hello from the bridge test', 'foryou-dm-test', '#/chat/test');

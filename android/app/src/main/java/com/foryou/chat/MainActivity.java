@@ -58,6 +58,8 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest pendingMedia;
     private boolean startUpdateOnResume;
+    private boolean pageLoaded;
+    private String pendingHash;
 
     static boolean isVisible() {
         return visible;
@@ -94,33 +96,40 @@ public class MainActivity extends Activity {
         web.setWebChromeClient(new Chrome());
         web.setDownloadListener((url, userAgent, disposition, mime, length) -> openExternal(url));
 
-        String start = SITE_URL + hashFrom(getIntent());
+        // Act on what opened the app (a notification, a call, an update) only on a fresh start. When
+        // Android rebuilds this screen later, getIntent() is still that first intent, already handled;
+        // anything new arrives through onNewIntent.
+        boolean fresh = state == null && (getIntent().getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0;
+        Intent opened = fresh ? getIntent() : new Intent();
+        String start = SITE_URL + hashFrom(opened);
         String test = getIntent().getStringExtra("testUrl");
         if (debuggable && test != null && test.startsWith(TEST_PREFIX)) start = test;
         // Decide trust before loading: a fast page can call the bridge before onPageStarted arrives.
         trusted = trustedUrl(start);
         web.loadUrl(start);
 
-        showOverLockScreen(getIntent().getBooleanExtra(EXTRA_RINGING, false));
-        rememberCallAction(getIntent());
+        showOverLockScreen(opened.getBooleanExtra(EXTRA_RINGING, false));
+        rememberCallAction(getIntent()); // safe to repeat: it only applies to the call still waiting
         askForNotificationsOnce();
         if (Store.hasDevice(this)) InboxJob.schedule(this);
         Push.refresh(this);
-        startUpdateOnResume = getIntent().getBooleanExtra(EXTRA_UPDATE, false);
-        // Debug builds under test can fetch updates from a local server (see ci/emulator-test.sh).
-        String testBase = getIntent().getStringExtra("updateBase");
-        if (debuggable && testBase != null && testBase.startsWith("http")) {
-            Store.setUpdateBase(this, testBase);
-            final boolean auto = getIntent().getBooleanExtra("autoUpdate", false);
-            final Context app = getApplicationContext();
-            new Thread(() -> {
-                Updater.check(app, false, true);
-                tellPage();
-                if (auto) runOnUiThread(() -> Updater.start(this));
-            }).start();
-        } else {
-            Updater.checkInBackground(this, false);
-        }
+        startUpdateOnResume = opened.getBooleanExtra(EXTRA_UPDATE, false);
+        if (!testUpdate(opened)) Updater.checkInBackground(this, false);
+    }
+
+    /** Debug builds under test can fetch updates from a local server (see ci/emulator-test.sh). */
+    private boolean testUpdate(Intent i) {
+        String base = i.getStringExtra("updateBase");
+        if (!debuggable || base == null || !base.startsWith("http")) return false;
+        Store.setUpdateBase(this, base);
+        final boolean auto = i.getBooleanExtra("autoUpdate", false);
+        final Context app = getApplicationContext();
+        new Thread(() -> {
+            Updater.check(app, false, true);
+            tellPage();
+            if (auto) runOnUiThread(() -> Updater.start(this));
+        }).start();
+        return true;
     }
 
     /** Tells the page how an update is going: downloading (with %), checking, installing, confirm, error. */
@@ -134,7 +143,8 @@ public class MainActivity extends Activity {
      */
     private void rememberCallAction(Intent i) {
         String action = i.getStringExtra(EXTRA_CALL_ACTION), key = i.getStringExtra(EXTRA_ROOM_KEY);
-        if ("accept".equals(action) && key != null && key.matches("[0-9a-f]{32}")) {
+        JSONObject waiting = Store.pendingCall(this);
+        if ("accept".equals(action) && key != null && waiting != null && key.equals(waiting.optString("roomKey"))) {
             Notifier.cancelCall(this);
             Store.setPendingAction(this, key, "accept");
         }
@@ -156,8 +166,12 @@ public class MainActivity extends Activity {
         setIntent(intent);
         showOverLockScreen(intent.getBooleanExtra(EXTRA_RINGING, false));
         String h = hashFrom(intent);
-        if (!h.isEmpty()) runJs("location.hash=" + JSONObject.quote(h));
+        if (!h.isEmpty()) {
+            if (pageLoaded) runJs("location.hash=" + JSONObject.quote(h));
+            else pendingHash = h; // still loading (the screen was just rebuilt): go there once it's up
+        }
         if (intent.getBooleanExtra(EXTRA_UPDATE, false)) Updater.start(this);
+        testUpdate(intent);
         String action = intent.getStringExtra(EXTRA_CALL_ACTION);
         String key = intent.getStringExtra(EXTRA_ROOM_KEY);
         if (action != null && key != null && key.matches("[0-9a-f]{32}")) {
@@ -234,11 +248,16 @@ public class MainActivity extends Activity {
         @Override
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
             trusted = trustedUrl(url);
+            pageLoaded = false;
         }
 
         @Override
         public void onPageFinished(WebView view, String url) {
-            if (trusted) Log.i(TAG, "Loaded " + url);
+            pageLoaded = true;
+            if (!trusted) return;
+            Log.i(TAG, "Loaded " + url);
+            if (pendingHash != null) runJs("location.hash=" + JSONObject.quote(pendingHash));
+            pendingHash = null;
         }
 
         @Override
