@@ -69,6 +69,7 @@ else
   fail "ForYou did not show inside the app"
 fi
 adb shell input keyevent KEYCODE_HOME
+adb shell am force-stop "$PKG"   # frees its memory for the rest of the test
 
 # ---------------------------------------------------------------- 2. notifications and ringing through the bridge
 DEBUG=$(ls "$APKS"/debug/*.apk 2>/dev/null | head -1)

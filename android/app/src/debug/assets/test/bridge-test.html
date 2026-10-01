@@ -18,7 +18,11 @@
   else {
     log('info ' + b.info());
     // A call that came by push and was answered from the notification waits here for the page.
-    log('pending ' + (b.takePendingCall() || 'none'));
+    var pending = b.takePendingCall();
+    log('pending ' + (pending || 'none'));
+    // Android restarted this page while it was out of sight (its device code is already set up, and
+    // no answered call is waiting): back on screen, end the call the earlier page started.
+    var restarted = !!JSON.parse(b.info() || '{}').deviceUser && !pending;
     // A message and a call while the app is out of sight (as soon as the test sends it to the
     // background), then the call ends when it's back on screen. The timers are a fallback.
     var KEY = '0123456789abcdef0123456789abcdef', rang = false, ended = false;
@@ -31,7 +35,7 @@
       log('ringing');
     }
     function end() {
-      if (!rang || ended) return;
+      if (!(rang || restarted) || ended) return;
       ended = true;
       b.endIncomingCall(KEY);
       log('call ended');
@@ -41,6 +45,7 @@
     });
     setTimeout(ring, 6000);
     setTimeout(end, 30000);
+    if (restarted && document.visibilityState === 'visible') setTimeout(end, 500);
     b.registerDevice(JSON.stringify({ url: 'https://test-not-a-real-project.supabase.co', key: 'test-key', token: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', user: '00000000-0000-0000-0000-000000000001' }));
     log('device registered');
     b.setInCall(true);

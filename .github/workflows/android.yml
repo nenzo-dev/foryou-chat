@@ -102,6 +102,7 @@ jobs:
           target: google_apis
           arch: x86_64
           disable-animations: true
+          ram-size: 4096M
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: bash android/ci/emulator-test.sh apks
 
