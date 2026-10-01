@@ -14,7 +14,6 @@ import java.util.Map;
  */
 final class PushHandler {
     private static final String TAG = "ForYou";
-    private static final long CALL_FRESH_MS = 45_000;
 
     private PushHandler() {}
 
@@ -28,10 +27,10 @@ final class PushHandler {
     }
 
     private static void call(Context c, Map<String, String> d) {
-        String key = d.get("roomKey"), from = d.get("from");
+        // "caller", not "from": Firebase reserves "from" and refuses any push that uses it. A call that
+        // comes too late never arrives at all (the push lives 45 seconds), so the phone's clock isn't asked.
+        String key = d.get("roomKey"), from = d.get("caller");
         if (key == null || !key.matches("[0-9a-f]{32}") || from == null || !from.matches("[0-9a-f\\-]{36}")) return;
-        long at = parseLong(d.get("at"));
-        if (at > 0 && System.currentTimeMillis() - at > CALL_FRESH_MS) return; // arrived too late to answer
         try {
             JSONObject invite = new JSONObject()
                     .put("type", "invite").put("roomKey", key).put("from", from)
@@ -76,13 +75,5 @@ final class PushHandler {
 
     private static String clip(String s, int max) {
         return s.length() > max ? s.substring(0, max - 1) + "…" : s;
-    }
-
-    private static long parseLong(String s) {
-        try {
-            return s == null ? 0 : Long.parseLong(s);
-        } catch (NumberFormatException e) {
-            return 0;
-        }
     }
 }

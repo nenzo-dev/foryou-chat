@@ -71,6 +71,8 @@ async function accessToken(): Promise<string> {
 }
 
 // One FCM message per phone. Data-only and high priority, so the app wakes up and shows it itself.
+// FCM refuses the whole message if a data key is "from", "message_type", or starts with "google" or
+// "gcm", which is why the caller travels as "caller".
 // Returns the tokens FCM says no longer exist, so they can be forgotten.
 async function send(tokens: string[], data: Record<string, string>, ttlSeconds: number): Promise<string[]> {
   if (!tokens.length) {
@@ -141,8 +143,8 @@ Deno.serve(async (req) => {
       if (!me || me.suspended) return json({ error: 'Not allowed' }, 403);
       const tokens = await tokensOf([to]);
       const data: Record<string, string> = body.type === 'call'
-        ? { type: 'call', roomKey, from: caller.id, fromName: me.full_name || 'Someone', fromAvatarColor: me.avatar_color || '', fromAvatarPath: me.avatar_path || '', at: String(Date.now()) }
-        : { type: 'cancel', roomKey, from: caller.id, fromName: me.full_name || 'Someone' };
+        ? { type: 'call', roomKey, caller: caller.id, fromName: me.full_name || 'Someone', fromAvatarColor: me.avatar_color || '', fromAvatarPath: me.avatar_path || '' }
+        : { type: 'cancel', roomKey, caller: caller.id, fromName: me.full_name || 'Someone' };
       await forget(await send(tokens, data, body.type === 'call' ? 45 : 60));
       return json({ ok: true, phones: tokens.length });
     }

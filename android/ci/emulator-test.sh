@@ -131,7 +131,7 @@ close_app() {
 }
 KEY=fedcba9876543210fedcba9876543210
 if close_app; then pass "app is closed"; else fail "could not close the app"; fi
-push --es type call --es roomKey "$KEY" --es from 00000000-0000-0000-0000-0000000000aa --es fromName "Push Caller"
+push --es type call --es roomKey "$KEY" --es caller 00000000-0000-0000-0000-0000000000aa --es fromName "Push Caller"
 if wait_for 20 has_notification "Push Caller"; then pass "call push rings with the app closed"; else fail "call push did not ring"; fi
 notifications > "$OUT/notifications-push-call.txt"
 grep -qE "fullscreenIntent=PendingIntent" "$OUT/notifications-push-call.txt" && pass "pushed call uses a full-screen alert" || fail "pushed call has no full-screen alert"
@@ -149,7 +149,7 @@ if wait_for 20 has_notification "Instant hello from a push"; then pass "message 
 
 # Answer on the ringing screen opens the app.
 if close_app; then :; fi
-push --es type call --es roomKey "$KEY" --es from 00000000-0000-0000-0000-0000000000aa --es fromName "Push Caller"
+push --es type call --es roomKey "$KEY" --es caller 00000000-0000-0000-0000-0000000000aa --es fromName "Push Caller"
 wait_for 20 has_notification "Push Caller" >/dev/null
 adb shell cmd statusbar expand-notifications
 sleep 2
