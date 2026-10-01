@@ -115,7 +115,7 @@ final class Notifier {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 .putExtra(MainActivity.EXTRA_UPDATE, true);
         PendingIntent pi = PendingIntent.getActivity(c, 30, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        String body = "A new version of ForYou is ready. Tap Update to install it.";
+        String body = "This version of ForYou will no longer be supported. Tap Update to install the new one.";
         Notification.Builder b = builder(c, CH_UPDATES)
                 .setContentTitle("ForYou " + version + " is ready")
                 .setContentText(body)

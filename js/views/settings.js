@@ -5,7 +5,8 @@ import { escapeHtml, initials, uid, readFileAsDataURL, formatBytes } from '../li
 import { notifySupported, notifyPermission, requestNotifyPermission } from '../lib/notify.js';
 import { toast, friendlyError } from '../lib/ui.js';
 import { ICON } from '../lib/icons.js';
-import { inAndroidApp, androidInfo, androidStartUpdate, androidCheckUpdate } from '../lib/android.js';
+import { inAndroidApp, androidInfo } from '../lib/android.js';
+import { availableUpdate, startAppUpdate, checkForAppUpdate } from './appupdate.js';
 import { state } from '../state.js';
 
 const SWATCHES = ['#F5C400', '#e0473c', '#2ea6a1', '#8a5cf6', '#f2823c', '#3b82c4', '#d94f8c', '#57a648'];
@@ -132,9 +133,9 @@ export async function mountSettings(root) {
       paintVersion();
       root.querySelector('#st-update-check').addEventListener('click', () => {
         root.querySelector('#st-version').textContent = 'Checking…';
-        androidCheckUpdate();
+        checkForAppUpdate();
       });
-      root.querySelector('#st-update-go').addEventListener('click', () => androidStartUpdate());
+      root.querySelector('#st-update-go').addEventListener('click', startAppUpdate);
       window.addEventListener('foryouapp', paintVersion);
     }
     const saveAi = root.querySelector('#st-save-ai');
@@ -253,8 +254,10 @@ export async function mountSettings(root) {
     const el = root.querySelector('#st-version');
     if (!el) { window.removeEventListener('foryouapp', paintVersion); return; }
     const info = androidInfo();
-    const u = info.update;
-    el.textContent = u ? `Version ${info.version || ''}. Version ${u.versionName} is ready.` : `Version ${info.version || ''}. You have the latest version.`;
+    const u = availableUpdate();
+    el.textContent = u
+      ? `Version ${info.version || ''}. Version ${u.versionName} is ready, and this version will no longer be supported.`
+      : `Version ${info.version || ''}. You have the latest version.`;
     root.querySelector('#st-update-go').classList.toggle('hidden', !u);
   }
 

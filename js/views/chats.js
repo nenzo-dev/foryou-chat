@@ -5,7 +5,8 @@ import { onLive } from '../lib/live.js';
 import { watchSeen, statusOf } from '../lib/seen.js';
 import { createRoom, joinRoom } from '../lib/rooms.js';
 import { dateLobby } from '../lib/dates.js';
-import { inAndroidApp, androidUpdate, androidStartUpdate } from '../lib/android.js';
+import { inAndroidApp } from '../lib/android.js';
+import { availableUpdate, updateProgress, progressText, startAppUpdate } from './appupdate.js';
 import { initials, timeAgo, escapeHtml, debounce, cssColor } from '../lib/util.js';
 import { openModal, closeModal, toast, friendlyError } from '../lib/ui.js';
 import { ICON } from '../lib/icons.js';
@@ -63,20 +64,28 @@ export function mountChatList(root) {
     window.removeEventListener('hashchange', highlightActive);
   };
 
-  // The Android app tells us when a newer version is out (Updater.java); "Update" installs it.
+  // A newer version of the Android app (views/appupdate.js). Once Update is pressed, the banner gives
+  // way to a line that shows how the update is going.
   function paintUpdate() {
     const box = root.querySelector('#cl-update');
     if (!box || !inAndroidApp()) return;
-    const u = androidUpdate();
-    if (!u) { if (!box.dataset.busy) box.innerHTML = ''; return; }
-    if (box.dataset.version === String(u.versionCode)) return;
-    box.dataset.version = String(u.versionCode);
-    box.innerHTML = `<div class="update-banner">
-      <span class="ub-ic">${ICON.download}</span>
-      <span class="ub-txt"><b>Update available</b><span id="cl-update-sub">ForYou ${escapeHtml(u.versionName)} is ready to install</span></span>
-      <button class="btn btn-gold btn-sm" id="cl-update-go" type="button">Update</button>
-    </div>`;
-    box.querySelector('#cl-update-go').addEventListener('click', () => { box.dataset.busy = '1'; androidStartUpdate(); });
+    const u = availableUpdate();
+    const p = updateProgress();
+    const key = p ? `p:${p.stage}:${p.pct}` : u ? `u:${u.versionCode}` : '';
+    if (box.dataset.key === key) return;
+    box.dataset.key = key;
+    if (p) {
+      box.innerHTML = `<div class="update-progress"><span class="up-spin"></span><span>${escapeHtml(progressText(p))}</span></div>`;
+    } else if (u) {
+      box.innerHTML = `<div class="update-banner">
+        <span class="ub-ic">${ICON.download}</span>
+        <span class="ub-txt"><b>Update available</b><span>ForYou ${escapeHtml(u.versionName)} is ready. This version will no longer be supported.</span></span>
+        <button class="btn btn-gold btn-sm" id="cl-update-go" type="button">Update</button>
+      </div>`;
+      box.querySelector('#cl-update-go').addEventListener('click', startAppUpdate);
+    } else {
+      box.innerHTML = '';
+    }
   }
 
   async function countDates() {

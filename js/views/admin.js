@@ -1,8 +1,8 @@
-// Configurer-only: browse every account and suspend/unsuspend them, and review pending appeals from
+// Configurer-only: browse every account and suspend, unsuspend or delete them, and review pending appeals from
 // suspended accounts. Reachable at #/admin, linked only from Settings for accounts where is_configurer
 // is true -- but every RPC here is re-checked server-side (am_i_configurer()) regardless of how someone
 // reached this screen.
-import { rpc } from '../lib/db.js';
+import { rpc, supabase } from '../lib/db.js';
 import { escapeHtml, initials, timeAgo } from '../lib/util.js';
 import { toast, openModal, closeModal, friendlyError } from '../lib/ui.js';
 import { ICON } from '../lib/icons.js';
@@ -49,19 +49,21 @@ export async function mountAdmin(root) {
   async function paintUsers(content) {
     const users = await rpc('admin_list_users');
     content.innerHTML = (users || []).map((u) => `
-      <div class="member-row" style="border-bottom:1px solid #1a1a1c;padding:12px 0">
+      <div class="member-row" style="border-bottom:1px solid #1a1a1c;padding:12px 0;align-items:flex-start">
         <div class="avatar sm">${escapeHtml(initials(u.full_name))}</div>
         <div class="meta">
           <div class="name">${escapeHtml(u.full_name || u.username || u.email)}${u.is_configurer ? ' &#9733;' : ''}${u.suspended ? ' <span class="chip" style="color:var(--danger);border-color:var(--danger)">Suspended</span>' : ''}</div>
           <div class="status">${escapeHtml(u.email)}${u.username ? ' · @' + escapeHtml(u.username) : ''} · joined ${timeAgo(new Date(u.created_at).getTime())}</div>
           ${u.suspended && u.suspended_reason ? `<div class="status">Reason: ${escapeHtml(u.suspended_reason)}</div>` : ''}
+          ${u.is_configurer ? '' : `<div class="ad-actions">${u.suspended
+            ? `<button class="btn btn-ghost btn-sm" data-unsuspend="${escapeHtml(u.id)}">Unsuspend</button>`
+            : `<button class="btn btn-ghost btn-sm" data-suspend="${escapeHtml(u.id)}" data-name="${escapeHtml(u.full_name || u.email)}">Suspend</button>`}
+            <button class="btn btn-danger btn-sm" data-delete="${escapeHtml(u.id)}" data-name="${escapeHtml(u.full_name || u.email)}">Delete</button></div>`}
         </div>
-        ${u.is_configurer ? '' : u.suspended
-          ? `<button class="btn btn-ghost btn-sm" data-unsuspend="${escapeHtml(u.id)}">Unsuspend</button>`
-          : `<button class="btn btn-danger btn-sm" data-suspend="${escapeHtml(u.id)}" data-name="${escapeHtml(u.full_name || u.email)}">Suspend</button>`}
       </div>`).join('') || '<p class="muted">No accounts yet.</p>';
 
     content.querySelectorAll('[data-suspend]').forEach((b) => b.addEventListener('click', () => openSuspendModal(b.dataset.suspend, b.dataset.name)));
+    content.querySelectorAll('[data-delete]').forEach((b) => b.addEventListener('click', () => openDeleteModal(b.dataset.delete, b.dataset.name)));
     content.querySelectorAll('[data-unsuspend]').forEach((b) => b.addEventListener('click', async () => {
       try { await rpc('admin_unsuspend_user', { p_user: b.dataset.unsuspend }); toast('Account unsuspended.'); render(); }
       catch (e) { toast(friendlyError(e)); }
@@ -84,6 +86,45 @@ export async function mountAdmin(root) {
         render();
       } catch (e) { toast(friendlyError(e)); }
     });
+  }
+
+  // Deleting can't be undone, so the admin types DELETE first. The "delete-account" Edge Function
+  // does the work (supabase/functions/delete-account): the account, its data and its files.
+  function openDeleteModal(userId, name) {
+    const modal = openModal(`
+      <h3>Delete ${escapeHtml(name)}'s account?</h3>
+      <p class="muted small">This deletes their account for good: their chats and messages, their photos and files, and their profile. Groups they made pass to the member who has been in them longest. This can't be undone.</p>
+      <label for="ad-del-word">Type DELETE to confirm</label>
+      <input id="ad-del-word" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="DELETE">
+      <button class="btn btn-danger btn-block" style="margin-top:12px" id="ad-confirm-delete" disabled>Delete account</button>`);
+    const word = modal.querySelector('#ad-del-word');
+    const go = modal.querySelector('#ad-confirm-delete');
+    word.addEventListener('input', () => { go.disabled = word.value.trim().toUpperCase() !== 'DELETE'; });
+    word.focus();
+    go.addEventListener('click', async () => {
+      go.disabled = true;
+      go.textContent = 'Deleting…';
+      try {
+        const { error } = await supabase.functions.invoke('delete-account', { body: { user: userId } });
+        if (error) throw await readableError(error);
+        toast(`${name}'s account was deleted.`);
+        closeModal();
+        render();
+      } catch (e) {
+        toast(friendlyError(e));
+        go.disabled = false;
+        go.textContent = 'Delete account';
+      }
+    });
+  }
+
+  // The function's own reasons ("That account does not exist", ...) are written to be shown.
+  async function readableError(error) {
+    try {
+      const body = await error.context.json();
+      if (body && body.error && body.error !== 'Delete failed') return Object.assign(new Error(body.error), { show: true });
+    } catch { /* not JSON: fall through */ }
+    return error;
   }
 
   async function paintAppeals(content) {

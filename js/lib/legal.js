@@ -46,9 +46,9 @@ Don't record or screenshot a call or a blind date without the permission of ever
 
 You own what you send. You allow ForYou to store and deliver it so the service works. Only send things you have the right to share.
 
-## Suspension
+## Suspension and deletion
 
-We may suspend accounts that break these terms. If your account is suspended, you can appeal from inside the app.
+We may suspend or delete accounts that break these terms. If your account is suspended, you can appeal from inside the app. A deleted account can't be brought back.
 
 ## The Android app
 
@@ -97,7 +97,7 @@ We don't sell your information and we don't show ads.
 
 - The people you chat with see your messages and your profile. Anyone signed in can see names, usernames and profile photos, so people can find each other.
 - Group members see the group's messages.
-- The ForYou administrator can see account details (name, username and email) to deal with suspensions and appeals.
+- The ForYou administrator can see account details (name, username and email) to deal with suspensions, appeals and deleting accounts.
 - The people who run ForYou can reach the database to keep it working. They don't read private messages unless they must, for example to deal with a report or a legal request.
 - Our service providers handle data for us only to run ForYou: Supabase (database, sign-in and file storage), Cloudflare (hosting the app and relaying calls), Google Firebase (delivering notifications to the Android app) and Anthropic (AI replies and shortening, only when you use them).
 
@@ -105,7 +105,7 @@ We don't sell your information and we don't show ads.
 
 - Messages stay until they're deleted. When you delete a message for everyone, its text and any attached file are removed straight away.
 - Blind date rooms are removed once everyone has left, or soon after they go quiet.
-- To have your account and everything in it deleted, contact us (see below).
+- To have your account and everything in it deleted, contact us (see below). Deleting an account removes its profile, chats, messages, photos and files. Groups it made pass to another member.
 
 ## The Android app
 

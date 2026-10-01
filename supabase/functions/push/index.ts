@@ -15,8 +15,15 @@ const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ACCOUNT_JSON = Deno.env.get('FCM_SERVICE_ACCOUNT');
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+// Calls are pushed from the browser (and the Android app's web view), so it answers the browser's
+// preflight and allows the page's origin.
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
 const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...CORS } });
 
 // ---------------------------------------------------------------- Google sign-in for FCM
 type Account = { client_email: string; private_key: string; project_id: string };
@@ -93,6 +100,7 @@ const firstName = (n: string | null) => String(n || '').trim().split(/\s+/)[0] |
 
 // ---------------------------------------------------------------- requests
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
   if (!ACCOUNT_JSON) return json({ skipped: 'push is not set up' });
   try {

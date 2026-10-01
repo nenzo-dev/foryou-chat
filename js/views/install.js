@@ -4,7 +4,8 @@
 // Inside the Android app this page shows the installed version and offers updates.
 import { CONFIG } from '../config.js';
 import { canPromptInstall, promptInstall } from '../app.js';
-import { inAndroidApp, androidInfo, androidStartUpdate } from '../lib/android.js';
+import { inAndroidApp, androidInfo, androidCanSelfUpdate } from '../lib/android.js';
+import { availableUpdate, startAppUpdate, checkForAppUpdate } from './appupdate.js';
 import { toast } from '../lib/ui.js';
 import { escapeHtml, formatBytes } from '../lib/util.js';
 import { ICON } from '../lib/icons.js';
@@ -85,12 +86,17 @@ export async function mountInstall(root) {
       const mine = androidInfo();
       const newer = Number(latest.versionCode) > Number(mine.code || 0);
       root.querySelector('#ga-installed').textContent = newer
-        ? `You have version ${mine.version || 'unknown'}. A newer version is ready.`
+        ? `You have version ${mine.version || 'unknown'}, which will no longer be supported. Please update to the new version.`
         : `You have the latest version (${mine.version || latest.versionName}).`;
       if (newer) {
         download.classList.remove('hidden');
         download.textContent = 'Update';
-        download.addEventListener('click', (e) => { e.preventDefault(); androidStartUpdate(); });
+        // 1.1.0 and later install it themselves; 1.0.0 follows the link, and the phone's browser downloads it.
+        if (androidCanSelfUpdate()) download.addEventListener('click', (e) => {
+          e.preventDefault();
+          if (availableUpdate()) startAppUpdate();
+          else { checkForAppUpdate(); toast('Getting the new version ready…'); }
+        });
       }
     } else {
       download.classList.remove('hidden');

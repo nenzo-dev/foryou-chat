@@ -1071,3 +1071,15 @@ label.agree a { color: var(--gold-2); }
 .ub-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 13px; }
 .ub-txt b { font-size: 14px; }
 .ub-txt span { color: var(--muted); }
+/* the pop-up when a newer version is ready, and the line that shows how an update is going */
+.update-pop { text-align: center; padding-top: 6px; }
+.update-pop .up-ic { width: 58px; height: 58px; margin: 0 auto 14px; border-radius: 19px; display: flex; align-items: center; justify-content: center; background: var(--gold-grad); color: #1a1300; box-shadow: 0 10px 30px rgba(245, 196, 0, .3); }
+.update-pop .up-ic svg { width: 28px; height: 28px; }
+.update-pop h3 { font-size: 21px; }
+.update-pop p { color: var(--muted); line-height: 1.55; margin: 0 0 18px; }
+.update-pop .btn-plain { margin-top: 6px; }
+.update-progress { display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin: 2px 0 10px; border-radius: 14px; font-size: 13px; color: var(--muted); background: rgba(245, 196, 0, .06); border: 1px solid rgba(245, 196, 0, .2); }
+.up-spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(245, 196, 0, .25); border-top-color: var(--gold, #f5c400); animation: spin .8s linear infinite; flex: none; }
+
+/* ---------- admin: actions on each account ---------- */
+.ad-actions { display: flex; gap: 8px; margin-top: 10px; }

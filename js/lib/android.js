@@ -40,6 +40,8 @@ export const androidInCall = (on) => call('setInCall', !!on);
 export const androidUpdate = () => androidInfo().update || null;
 export const androidStartUpdate = () => call('startUpdate');
 export const androidCheckUpdate = () => call('checkUpdate');
+// 1.0.0 has no updater; the website offers it the new version to download instead.
+export const androidCanSelfUpdate = () => { const b = bridge(); return !!b && typeof b.startUpdate === 'function'; };
 // A call that reached the phone by push: { invite, action: 'accept' | 'show' }, or null.
 export function androidTakePendingCall() {
   try { const raw = call('takePendingCall'); return raw ? JSON.parse(raw) : null; } catch { return null; }
