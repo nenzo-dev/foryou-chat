@@ -108,6 +108,7 @@ public class InboxJob extends JobService {
 
         if (!now.isEmpty()) Store.setSince(c, now);
         Log.i(TAG, "Inbox checked: " + latest.size() + " chat(s) with new messages");
+        Updater.check(c, true, false); // at most hourly: a notification when a new version is out
     }
 
     private static String firstName(String name) {

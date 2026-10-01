@@ -115,6 +115,7 @@ The app shows the same ForYou service, so everything on this page applies to it.
 - When someone calls or messages you, ForYou sends your phone a notification through Google Firebase Cloud Messaging, so it can ring or tell you even when the app is closed. The notification carries the caller's or sender's name and a short preview of the message.
 - While you're signed in, the app also checks for new messages about every 15 minutes when it's closed, using a private code made for your phone. Signing out deletes that code and stops notifications to that phone.
 - It keeps your screen on during a call.
+- About once an hour it checks foryou-chat.pages.dev for a newer version of the app and tells you when one is ready. Updates only install when you tap Update and confirm on Android's own screen.
 
 Uninstalling the app deletes everything it stored on your phone.
 

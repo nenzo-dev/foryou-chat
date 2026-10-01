@@ -7,6 +7,21 @@ import { startRingListener, stopRingListener } from './lib/ring.js';
 import { requestNotifyPermission, notifyPermission, notifySupported, notify } from './lib/notify.js';
 import { toast, showPane, openModal, closeModal } from './lib/ui.js';
 import { registerAndroidDevice, androidSignedOut } from './lib/android.js';
+
+// The Android app reports how an update is going (Updater.java): show it on any Update button.
+window.__foryouUpdate = (stage, pct) => {
+  const text = {
+    downloading: `Downloading ${pct}%`, checking: 'Checking…', installing: 'Installing…',
+    confirm: 'Tap Update to finish', idle: 'Update', none: "You're up to date",
+    error: "Couldn't update. Try again",
+  }[stage] || 'Update';
+  document.querySelectorAll('#cl-update-go, #st-update-go, #ga-download').forEach((b) => {
+    b.textContent = text;
+    b.disabled = ['downloading', 'checking', 'installing'].includes(stage);
+  });
+  if (stage === 'error') toast("Sorry, the update didn't download. Check your connection and try again.");
+  if (stage === 'error' || stage === 'idle' || stage === 'none') document.querySelectorAll('#cl-update').forEach((b) => delete b.dataset.busy);
+};
 import { LEGAL_UPDATED } from './lib/legal.js';
 import { ensureProfile } from './lib/profile.js';
 import { state } from './state.js';

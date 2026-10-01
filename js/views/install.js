@@ -4,7 +4,7 @@
 // Inside the Android app this page shows the installed version and offers updates.
 import { CONFIG } from '../config.js';
 import { canPromptInstall, promptInstall } from '../app.js';
-import { inAndroidApp, androidInfo } from '../lib/android.js';
+import { inAndroidApp, androidInfo, androidStartUpdate } from '../lib/android.js';
 import { toast } from '../lib/ui.js';
 import { escapeHtml, formatBytes } from '../lib/util.js';
 import { ICON } from '../lib/icons.js';
@@ -87,7 +87,11 @@ export async function mountInstall(root) {
       root.querySelector('#ga-installed').textContent = newer
         ? `You have version ${mine.version || 'unknown'}. A newer version is ready.`
         : `You have the latest version (${mine.version || latest.versionName}).`;
-      if (newer) { download.classList.remove('hidden'); download.innerHTML = `${ICON.download} Update the app`; }
+      if (newer) {
+        download.classList.remove('hidden');
+        download.textContent = 'Update';
+        download.addEventListener('click', (e) => { e.preventDefault(); androidStartUpdate(); });
+      }
     } else {
       download.classList.remove('hidden');
     }

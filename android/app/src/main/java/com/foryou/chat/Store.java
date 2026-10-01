@@ -112,6 +112,41 @@ final class Store {
         return prefs(c).getString("pendingAction", "show");
     }
 
+    // ---------------------------------------------------------------- app updates
+    /** Where updates come from: the website, or (debug builds under test only) a local server. */
+    static String updateBase(Context c) {
+        return prefs(c).getString("updateBase", "");
+    }
+
+    static void setUpdateBase(Context c, String url) {
+        prefs(c).edit().putString("updateBase", url).putLong("updateCheckedAt", 0).apply();
+    }
+
+    static long updateCheckedAt(Context c) {
+        return prefs(c).getLong("updateCheckedAt", 0);
+    }
+
+    static void setUpdateCheckedAt(Context c, long at) {
+        prefs(c).edit().putLong("updateCheckedAt", at).apply();
+    }
+
+    /** The newer version that's available (from app/android.json), or null. */
+    static JSONObject update(Context c) {
+        String s = prefs(c).getString("update", null);
+        if (s == null) return null;
+        try {
+            JSONObject j = new JSONObject(s);
+            return j.optInt("versionCode") > BuildConfig.VERSION_CODE ? j : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    static void setUpdate(Context c, JSONObject j) {
+        if (j == null) prefs(c).edit().remove("update").apply();
+        else prefs(c).edit().putString("update", j.toString()).apply();
+    }
+
     /** The server time of the last check: only messages after it are new. */
     static String since(Context c) {
         return prefs(c).getString("since", isoNow(0));

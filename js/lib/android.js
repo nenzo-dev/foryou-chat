@@ -36,6 +36,10 @@ export const androidAskNotifications = () => call('requestNotifications');
 export const androidIncomingCall = (roomKey, name) => call('incomingCall', JSON.stringify({ roomKey, name }));
 export const androidEndIncomingCall = (roomKey) => call('endIncomingCall', String(roomKey || ''));
 export const androidInCall = (on) => call('setInCall', !!on);
+// App updates (android/.../Updater.java): what's available, start it, or look again now.
+export const androidUpdate = () => androidInfo().update || null;
+export const androidStartUpdate = () => call('startUpdate');
+export const androidCheckUpdate = () => call('checkUpdate');
 // A call that reached the phone by push: { invite, action: 'accept' | 'show' }, or null.
 export function androidTakePendingCall() {
   try { const raw = call('takePendingCall'); return raw ? JSON.parse(raw) : null; } catch { return null; }

@@ -5,6 +5,7 @@ import { escapeHtml, initials, uid, readFileAsDataURL, formatBytes } from '../li
 import { notifySupported, notifyPermission, requestNotifyPermission } from '../lib/notify.js';
 import { toast, friendlyError } from '../lib/ui.js';
 import { ICON } from '../lib/icons.js';
+import { inAndroidApp, androidInfo, androidStartUpdate, androidCheckUpdate } from '../lib/android.js';
 import { state } from '../state.js';
 
 const SWATCHES = ['#F5C400', '#e0473c', '#2ea6a1', '#8a5cf6', '#f2823c', '#3b82c4', '#d94f8c', '#57a648'];
@@ -88,6 +89,16 @@ export async function mountSettings(root) {
         <button class="btn btn-ghost" id="st-install">Install / QR code</button>
       </div>
 
+      ${inAndroidApp() ? `
+      <div class="settings-section">
+        <h4>App</h4>
+        <div class="toggle-row">
+          <div><div class="label">ForYou for Android</div><div class="hint" id="st-version"></div></div>
+          <button class="btn btn-ghost btn-sm" id="st-update-check" type="button">Check for updates</button>
+        </div>
+        <button class="btn btn-gold btn-block hidden" id="st-update-go" type="button">Update</button>
+      </div>` : ''}
+
       <div class="settings-section">
         <h4>Help and legal</h4>
         <button class="settings-link" id="st-contact" type="button">Contact ForYou<span>Send the ForYou team a message</span></button>
@@ -117,6 +128,15 @@ export async function mountSettings(root) {
     root.querySelector('#st-install').addEventListener('click', () => { location.hash = '#/install'; });
     root.querySelector('#st-signout').addEventListener('click', async () => { await signOut(); });
     root.querySelector('#st-contact').addEventListener('click', contactTeam);
+    if (inAndroidApp()) {
+      paintVersion();
+      root.querySelector('#st-update-check').addEventListener('click', () => {
+        root.querySelector('#st-version').textContent = 'Checking…';
+        androidCheckUpdate();
+      });
+      root.querySelector('#st-update-go').addEventListener('click', () => androidStartUpdate());
+      window.addEventListener('foryouapp', paintVersion);
+    }
     const saveAi = root.querySelector('#st-save-ai');
     if (saveAi) saveAi.addEventListener('click', saveAiKey);
     const adminBtn = root.querySelector('#st-admin');
@@ -227,6 +247,15 @@ export async function mountSettings(root) {
     const p = notifyPermission();
     el.textContent = p === 'granted' ? 'On.' : p === 'denied' ? 'Blocked. Allow notifications for ForYou in your browser or phone settings.' : 'Get told about new messages and calls when ForYou is in the background.';
     btn.disabled = p !== 'default';
+  }
+
+  function paintVersion() {
+    const el = root.querySelector('#st-version');
+    if (!el) { window.removeEventListener('foryouapp', paintVersion); return; }
+    const info = androidInfo();
+    const u = info.update;
+    el.textContent = u ? `Version ${info.version || ''}. Version ${u.versionName} is ready.` : `Version ${info.version || ''}. You have the latest version.`;
+    root.querySelector('#st-update-go').classList.toggle('hidden', !u);
   }
 
   // "Contact ForYou" opens a chat with the app's administrator (the configurer account).

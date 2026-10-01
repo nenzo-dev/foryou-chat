@@ -5,6 +5,7 @@ import { onLive } from '../lib/live.js';
 import { watchSeen, statusOf } from '../lib/seen.js';
 import { createRoom, joinRoom } from '../lib/rooms.js';
 import { dateLobby } from '../lib/dates.js';
+import { inAndroidApp, androidUpdate, androidStartUpdate } from '../lib/android.js';
 import { initials, timeAgo, escapeHtml, debounce, cssColor } from '../lib/util.js';
 import { openModal, closeModal, toast, friendlyError } from '../lib/ui.js';
 import { ICON } from '../lib/icons.js';
@@ -26,6 +27,7 @@ export function mountChatList(root) {
     </div>
     <div class="searchbar"><input id="cl-search" type="search" placeholder="Search chats"></div>
     <div class="list" id="cl-list">
+      <div id="cl-update"></div>
       <button class="bd-banner" id="cl-dates" type="button">
         <span class="bd-banner-art">${ICON.blindfold}</span>
         <span class="bd-banner-txt"><b>UNILUS Blind Dates</b><span id="cl-dates-sub">Talk first, see later</span></span>
@@ -49,14 +51,33 @@ export function mountChatList(root) {
 
   load();
   countDates();
+  paintUpdate();
+  window.addEventListener('foryouapp', paintUpdate);
   const datesTimer = setInterval(countDates, 30000);
 
   return () => {
     clearInterval(datesTimer);
+    window.removeEventListener('foryouapp', paintUpdate);
     offs.forEach((off) => off());
     if (stopWatchingSeen) stopWatchingSeen();
     window.removeEventListener('hashchange', highlightActive);
   };
+
+  // The Android app tells us when a newer version is out (Updater.java); "Update" installs it.
+  function paintUpdate() {
+    const box = root.querySelector('#cl-update');
+    if (!box || !inAndroidApp()) return;
+    const u = androidUpdate();
+    if (!u) { if (!box.dataset.busy) box.innerHTML = ''; return; }
+    if (box.dataset.version === String(u.versionCode)) return;
+    box.dataset.version = String(u.versionCode);
+    box.innerHTML = `<div class="update-banner">
+      <span class="ub-ic">${ICON.download}</span>
+      <span class="ub-txt"><b>Update available</b><span id="cl-update-sub">ForYou ${escapeHtml(u.versionName)} is ready to install</span></span>
+      <button class="btn btn-gold btn-sm" id="cl-update-go" type="button">Update</button>
+    </div>`;
+    box.querySelector('#cl-update-go').addEventListener('click', () => { box.dataset.busy = '1'; androidStartUpdate(); });
+  }
 
   async function countDates() {
     try {

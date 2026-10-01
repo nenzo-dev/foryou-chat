@@ -1059,3 +1059,15 @@ label.agree a { color: var(--gold-2); }
 .get-steps li { margin: 5px 0; }
 .get-note { margin: 10px 0 0; }
 .get-card .qr-box { margin-top: 0; }
+
+/* ---------- app update banner (Android app) ---------- */
+.update-banner {
+  display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 14px; margin: 2px 0 10px; border-radius: 18px;
+  background: linear-gradient(135deg, rgba(245, 196, 0, .2), rgba(245, 196, 0, .06)); border: 1px solid rgba(245, 196, 0, .45);
+  animation: slide-up .25s var(--ease);
+}
+.ub-ic { width: 40px; height: 40px; border-radius: 13px; display: flex; align-items: center; justify-content: center; background: var(--gold-grad); color: #1a1300; flex: none; }
+.ub-ic svg { width: 21px; height: 21px; }
+.ub-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 13px; }
+.ub-txt b { font-size: 14px; }
+.ub-txt span { color: var(--muted); }

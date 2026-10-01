@@ -49,6 +49,18 @@ final class Bridge {
         }
     }
 
+    /** "Update" in the app: download, check and install the newer version. */
+    @JavascriptInterface
+    public void startUpdate() {
+        if (activity.isTrustedPage()) activity.runOnUiThread(() -> Updater.start(activity));
+    }
+
+    /** "Check for updates" in Settings: look now; the page hears back through its 'foryouapp' event. */
+    @JavascriptInterface
+    public void checkUpdate() {
+        if (activity.isTrustedPage()) Updater.checkInBackground(activity, true);
+    }
+
     @JavascriptInterface
     public void requestNotifications() {
         if (activity.isTrustedPage()) activity.runOnUiThread(activity::askNotifications);

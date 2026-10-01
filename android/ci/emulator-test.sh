@@ -141,6 +141,37 @@ fi
 shot 06-after-answer
 adb logcat -d -s ForYou:V > "$OUT/push-log.txt"
 
+# ---------------------------------------------------------------- 4. the app updates itself
+# A local server stands in for the website: it offers "version 9.9.9" (really this same debug build).
+# The app must find it, download it, check its SHA-256, and hand it to Android's installer, whose
+# "Update" button then replaces the installed app.
+UPD=$(mktemp -d)
+mkdir -p "$UPD/app"
+cp "$DEBUG" "$UPD/app/foryou.apk"
+printf '{"versionName":"9.9.9","versionCode":99,"size":%s,"sha256":"%s"}\n' \
+  "$(stat -c %s "$UPD/app/foryou.apk")" "$(sha256sum "$UPD/app/foryou.apk" | cut -d' ' -f1)" > "$UPD/app/android.json"
+python3 -m http.server 8000 --directory "$UPD" >/dev/null 2>&1 &
+SERVER=$!
+sleep 2
+adb shell appops set "$DBG" REQUEST_INSTALL_PACKAGES allow
+before_update=$(adb shell dumpsys package "$DBG" | grep -m1 lastUpdateTime | tr -d '\r')
+close_app || true   # the update settings are read when the app starts
+adb logcat -c
+adb shell am start -W -n "$DBG/com.foryou.chat.MainActivity" --es testUrl file:///android_asset/test/bridge-test.html \
+  --es updateBase http://10.0.2.2:8000/ --ez autoUpdate true >/dev/null
+handed() { adb logcat -d -s ForYou:V | grep -qF "Update handed to the installer"; }
+if wait_for 60 handed; then pass "update downloads, matches the published file and goes to the installer"; else fail "update did not reach the installer"; adb logcat -d -s ForYou:V | tail -20 >> "$OUT/results.txt"; fi
+sleep 3
+shot 07-update-confirm
+if wait_for 20 tap_text "Update"; then
+  updated() { [ "$(adb shell dumpsys package "$DBG" | grep -m1 lastUpdateTime | tr -d '\r')" != "$before_update" ]; }
+  if wait_for 60 updated; then pass "Android's installer updates the app"; else fail "the app was not replaced"; fi
+else
+  fail "could not find the installer's Update button"
+fi
+shot 08-after-update
+kill "$SERVER" 2>/dev/null
+
 if grep -qF "Push token ready" "$OUT/release-log.txt"; then pass "release app gets a push token"; else echo "NOTE: no push token in the release app (expected until google-services.json is added)" | tee -a "$OUT/results.txt"; fi
 
 adb logcat -d -b crash > "$OUT/crashes.txt" 2>/dev/null

@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.NotificationManager;
 import android.content.ActivityNotFoundException;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
@@ -41,6 +42,7 @@ public class MainActivity extends Activity {
     static final String EXTRA_CALL_ACTION = "callAction";
     static final String EXTRA_ROOM_KEY = "roomKey";
     static final String EXTRA_RINGING = "ringing";
+    static final String EXTRA_UPDATE = "update";
     private static final String TAG = "ForYou";
     private static final String OFFLINE_URL = "file:///android_asset/offline.html";
     private static final String TEST_PREFIX = "file:///android_asset/test/";
@@ -55,6 +57,7 @@ public class MainActivity extends Activity {
     private WebView web;
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest pendingMedia;
+    private boolean startUpdateOnResume;
 
     static boolean isVisible() {
         return visible;
@@ -103,6 +106,26 @@ public class MainActivity extends Activity {
         askForNotificationsOnce();
         if (Store.hasDevice(this)) InboxJob.schedule(this);
         Push.refresh(this);
+        startUpdateOnResume = getIntent().getBooleanExtra(EXTRA_UPDATE, false);
+        // Debug builds under test can fetch updates from a local server (see ci/emulator-test.sh).
+        String testBase = getIntent().getStringExtra("updateBase");
+        if (debuggable && testBase != null && testBase.startsWith("http")) {
+            Store.setUpdateBase(this, testBase);
+            final boolean auto = getIntent().getBooleanExtra("autoUpdate", false);
+            final Context app = getApplicationContext();
+            new Thread(() -> {
+                Updater.check(app, false, true);
+                tellPage();
+                if (auto) runOnUiThread(() -> Updater.start(this));
+            }).start();
+        } else {
+            Updater.checkInBackground(this, false);
+        }
+    }
+
+    /** Tells the page how an update is going: downloading (with %), checking, installing, confirm, error. */
+    void updateProgress(String state, int pct) {
+        runJs("window.__foryouUpdate&&window.__foryouUpdate(" + JSONObject.quote(state) + "," + pct + ")");
     }
 
     /**
@@ -134,6 +157,7 @@ public class MainActivity extends Activity {
         showOverLockScreen(intent.getBooleanExtra(EXTRA_RINGING, false));
         String h = hashFrom(intent);
         if (!h.isEmpty()) runJs("location.hash=" + JSONObject.quote(h));
+        if (intent.getBooleanExtra(EXTRA_UPDATE, false)) Updater.start(this);
         String action = intent.getStringExtra(EXTRA_CALL_ACTION);
         String key = intent.getStringExtra(EXTRA_ROOM_KEY);
         if (action != null && key != null && key.matches("[0-9a-f]{32}")) {
@@ -358,6 +382,8 @@ public class MainActivity extends Activity {
             o.put("fullScreen", Build.VERSION.SDK_INT < 34 || nm.canUseFullScreenIntent());
             o.put("deviceUser", Store.deviceUser(this));
             o.put("push", Push.enabled() && Store.pushUploaded(this));
+            JSONObject u = Store.update(this);
+            if (u != null) o.put("update", new JSONObject().put("versionName", u.optString("versionName")).put("versionCode", u.optInt("versionCode")).put("size", u.optLong("size")));
         } catch (Exception ignored) {
             // leave whatever was filled in
         }
@@ -412,7 +438,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void tellPage() {
+    void tellPage() {
         runJs("window.dispatchEvent(new Event('foryouapp'))");
     }
 
@@ -424,6 +450,15 @@ public class MainActivity extends Activity {
         Notifier.cancelMessages(this); // you're looking at ForYou now
         tellPage();
         runJs("window.__foryouCheckCall&&window.__foryouCheckCall()"); // a call that arrived by push
+        // Back from "Allow from this source", or opened from the update notification.
+        boolean allowed = Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls();
+        if (Store.getInt(this, "updateAfterPermission", 0) == 1 && allowed) {
+            Store.putInt(this, "updateAfterPermission", 0);
+            Updater.start(this);
+        } else if (startUpdateOnResume) {
+            startUpdateOnResume = false;
+            Updater.start(this);
+        }
     }
 
     @Override

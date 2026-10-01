@@ -20,6 +20,7 @@ final class Notifier {
     static final String CH_MESSAGES = "messages";
     static final String CH_CALLS = "calls";
     static final String CH_AI = "ai_followups";
+    static final String CH_UPDATES = "app_updates";
     static final String CALL_TAG = "call";
     private static final int GOLD = 0xFFF5C400;
     private static final long[] RING_VIBRATION = {0, 900, 700, 900, 700};
@@ -47,7 +48,10 @@ final class Notifier {
         NotificationChannel ai = new NotificationChannel(CH_AI, "AI replies", NotificationManager.IMPORTANCE_DEFAULT);
         ai.setDescription("When AI answered for you while you were away, so you can follow up");
 
-        nm.createNotificationChannels(Arrays.asList(messages, calls, ai));
+        NotificationChannel updates = new NotificationChannel(CH_UPDATES, "App updates", NotificationManager.IMPORTANCE_DEFAULT);
+        updates.setDescription("When a new version of ForYou is ready to install");
+
+        nm.createNotificationChannels(Arrays.asList(messages, calls, ai, updates));
     }
 
     static Uri ringtone() {
@@ -102,6 +106,36 @@ final class Notifier {
                 .setAutoCancel(true)
                 .setContentIntent(open(c, "", 7));
         post(c, "foryou-ai-followup", b.build());
+    }
+
+    /** A newer version is out: tapping it, or its Update button, opens the app and starts the update. */
+    @SuppressWarnings("deprecation")
+    static void update(Context c, String version) {
+        Intent i = new Intent(c, MainActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra(MainActivity.EXTRA_UPDATE, true);
+        PendingIntent pi = PendingIntent.getActivity(c, 30, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        String body = "A new version of ForYou is ready. Tap Update to install it.";
+        Notification.Builder b = builder(c, CH_UPDATES)
+                .setContentTitle("ForYou " + version + " is ready")
+                .setContentText(body)
+                .setStyle(new Notification.BigTextStyle().bigText(body))
+                .setAutoCancel(true)
+                .setContentIntent(pi)
+                .addAction(new Notification.Action.Builder(Icon.createWithResource(c, R.drawable.ic_stat_foryou), "Update", pi).build());
+        post(c, "foryou-update", b.build());
+    }
+
+    /** The download finished while the person was elsewhere: one tap shows Android's "Update?" screen. */
+    static void updateReady(Context c, Intent confirm) {
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
+        PendingIntent pi = PendingIntent.getActivity(c, 31, confirm, flags);
+        Notification.Builder b = builder(c, CH_UPDATES)
+                .setContentTitle("Finish updating ForYou")
+                .setContentText("The new version is downloaded. Tap to install it.")
+                .setAutoCancel(true)
+                .setContentIntent(pi);
+        post(c, "foryou-update", b.build());
     }
 
     /** The ringing screen: rings until answered, declined, cancelled, or after about a minute. */
