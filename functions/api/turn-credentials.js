@@ -20,7 +20,10 @@ const json = (body, status = 200) => new Response(JSON.stringify(body), {
 });
 
 export async function onRequestGet({ request, env }) {
-  if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return json({ iceServers: null, reason: 'not-configured' }, 503);
+  // Values pasted into the dashboard often carry a stray space or line break.
+  const keyId = String(env.TURN_KEY_ID || '').trim();
+  const apiToken = String(env.TURN_KEY_API_TOKEN || '').trim();
+  if (!keyId || !apiToken) return json({ iceServers: null, reason: 'not-configured' }, 503);
 
   const auth = request.headers.get('Authorization') || '';
   if (!/^Bearer\s+[\w-]+\.[\w-]+\.[\w-]+$/.test(auth)) return json({ error: 'sign-in-required' }, 401);
@@ -35,12 +38,14 @@ export async function onRequestGet({ request, env }) {
   }
 
   try {
-    const res = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(env.TURN_KEY_ID)}/credentials/generate-ice-servers`, {
+    const res = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(keyId)}/credentials/generate-ice-servers`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${env.TURN_KEY_API_TOKEN}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ttl: TTL_SECONDS }),
     });
-    if (!res.ok) return json({ error: 'turn-unavailable' }, 502);
+    // Cloudflare's status says which setting is wrong (401/403: the API token, 404: the key ID) without
+    // revealing either value.
+    if (!res.ok) return json({ error: 'turn-unavailable', upstream: res.status }, 502);
     const data = await res.json();
     // generate-ice-servers answers with a list; the older generate endpoint with a single object.
     const list = Array.isArray(data.iceServers) ? data.iceServers : data.iceServers ? [data.iceServers] : [];
