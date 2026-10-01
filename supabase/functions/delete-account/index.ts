@@ -7,6 +7,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 // Called from the browser, so it answers the browser's preflight and allows the page's origin.
@@ -33,8 +34,15 @@ Deno.serve(async (req) => {
     const { data: who } = await db.auth.getUser(jwt);
     const caller = who && who.user;
     if (!caller) return json({ error: 'Sign in first' }, 401);
-    const { data: me } = await db.from('profiles').select('is_configurer').eq('id', caller.id).single();
-    if (!me || !me.is_configurer) return json({ error: 'Only the administrator can delete accounts' }, 403);
+    // Ask the database as the caller themselves (am_i_configurer(), supabase/schema.sql): the service
+    // role here can run delete_account() but isn't granted the tables.
+    const asCaller = createClient(SUPABASE_URL, ANON_KEY, {
+      auth: { persistSession: false },
+      global: { headers: { Authorization: `Bearer ${jwt}` } },
+    });
+    const { data: isAdmin, error: adminError } = await asCaller.rpc('am_i_configurer');
+    if (adminError) console.error(adminError);
+    if (isAdmin !== true) return json({ error: 'Only the administrator can delete accounts' }, 403);
     if (target === caller.id) return json({ error: "You can't delete your own account here" }, 400);
 
     const { data: files, error } = await db.rpc('delete_account', { p_user: target });
