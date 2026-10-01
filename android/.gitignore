@@ -1,0 +1,2 @@
+# Firebase settings come from the GOOGLE_SERVICES_JSON secret in CI, never from the repository.
+app/google-services.json

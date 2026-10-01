@@ -196,7 +196,7 @@ fi
 shot 08-after-update
 kill "$SERVER" 2>/dev/null
 
-if grep -qF "Push token ready" "$OUT/release-log.txt"; then pass "release app gets a push token"; else echo "NOTE: no push token in the release app (expected until google-services.json is added)" | tee -a "$OUT/results.txt"; fi
+if grep -qF "Push token ready" "$OUT/release-log.txt"; then pass "release app gets a push token"; else echo "NOTE: no push token in the release app (expected: the test emulator has no Google Play services, which Firebase needs for tokens)" | tee -a "$OUT/results.txt"; fi
 
 adb logcat -d -b crash > "$OUT/crashes.txt" 2>/dev/null
 if grep -qF "com.foryou.chat" "$OUT/crashes.txt"; then fail "the app crashed (see crashes.txt)"; else pass "no crashes"; fi
