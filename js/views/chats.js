@@ -30,7 +30,7 @@ export function mountChatList(root) {
       <div id="cl-update"></div>
       <button class="bd-banner" id="cl-dates" type="button">
         <span class="bd-banner-art">${ICON.blindfold}</span>
-        <span class="bd-banner-txt"><b>UNILUS Blind Dates</b><span id="cl-dates-sub">Talk first, see later</span></span>
+        <span class="bd-banner-txt"><b>Campus Blind Dates</b><span id="cl-dates-sub">Talk first, see later</span></span>
         <span class="bd-banner-go">${ICON.back}</span>
       </button>
       <div id="cl-rows"><div class="thread-loading"><span></span><span></span><span></span></div></div>

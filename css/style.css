@@ -1,5 +1,5 @@
 /* =========================================================================
-   ForYou -- black and gold, with a rose palette for UNILUS Blind Dates
+   ForYou -- black and gold, with a rose palette for Campus Blind Dates
    ========================================================================= */
 :root {
   --bg: #07070a;
@@ -230,7 +230,7 @@ body[data-pane="list"] .pane-thread { display: none; }
 .fab:hover { transform: translateY(-2px) rotate(90deg); }
 .fab:active { transform: scale(.94); }
 
-/* the UNILUS Blind Dates entry at the top of the chat list */
+/* the Campus Blind Dates entry at the top of the chat list */
 .bd-banner {
   width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin: 2px 0 10px; border-radius: 18px; cursor: pointer;
   border: 1px solid rgba(255, 79, 139, .35); color: #fff; text-align: left; position: relative; overflow: hidden;
@@ -719,7 +719,7 @@ video.mirror { transform: scaleX(-1); }
 .tile.mic-off .tag-mic { display: inline-flex; }
 
 /* =========================================================================
-   UNILUS Blind Dates
+   Campus Blind Dates
    ========================================================================= */
 .bd-page { flex: 1; min-height: 0; display: flex; flex-direction: column; background: radial-gradient(900px 500px at 50% -10%, rgba(224, 48, 107, .22), transparent 65%), linear-gradient(180deg, #12060d, #08050a 60%); }
 .bd-head { background: rgba(18, 6, 13, .78); border-bottom-color: rgba(255, 79, 139, .15); }

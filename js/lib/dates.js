@@ -1,4 +1,4 @@
-// UNILUS blind dates: the calls to the database (supabase/migrations/07). The database decides who
+// Campus blind dates: the calls to the database (supabase/migrations/07). The database decides who
 // holds which seat, when the blindfold is open, and hides one dater's name and photo from the other
 // until then -- this file only asks.
 import { rpc } from './db.js';

@@ -1,4 +1,4 @@
-// UNILUS Blind Dates, the lobby: what it is, the rooms open right now, and starting a new one. A room
+// Campus Blind Dates, the lobby: what it is, the rooms open right now, and starting a new one. A room
 // has three seats -- one host and two daters. Taking a seat opens the date itself (js/views/date.js).
 import { avatarUrl } from '../lib/db.js';
 import { dateLobby, createDate } from '../lib/dates.js';
@@ -34,13 +34,13 @@ export async function mountDates(root) {
   <div class="bd-page">
     <div class="thread-head bd-head">
       <button class="back-btn" id="bd-back" aria-label="Back">${ICON.back}</button>
-      <div class="info"><span class="name">Blind dates</span><span class="status">UNILUS</span></div>
+      <div class="info"><span class="name">Blind dates</span><span class="status">Campus</span></div>
     </div>
     <div class="bd-scroll">
       <section class="bd-hero">
         <div class="bd-aurora"><i></i><i></i><i></i></div>
         ${BLINDFOLD_ART}
-        <p class="bd-kicker">UNILUS</p>
+        <p class="bd-kicker">Campus</p>
         <h1 class="bd-title">Blind Dates</h1>
         <p class="bd-lead">Talk first, see later. Two people meet blindfolded and get to know each other by voice, while a host keeps the date going. When the moment feels right, the host lifts the blindfold.</p>
         <div class="bd-cta">

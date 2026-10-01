@@ -71,7 +71,7 @@ export async function mountDate(root, dateId) {
     <div class="bd-page">
       <div class="thread-head bd-head">
         <button class="back-btn" id="bj-back" aria-label="Back">${ICON.back}</button>
-        <div class="info"><span class="name">Blind date</span><span class="status">UNILUS</span></div>
+        <div class="info"><span class="name">Blind date</span><span class="status">Campus</span></div>
       </div>
       <div class="bd-scroll">
         <section class="bd-join">
