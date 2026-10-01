@@ -59,7 +59,10 @@ RELEASE=$(ls "$APKS"/release/*.apk 2>/dev/null | head -1)
 if [ -n "$RELEASE" ] && adb install -r "$RELEASE"; then pass "release APK installs"; else fail "release APK did not install"; fi
 for p in POST_NOTIFICATIONS CAMERA RECORD_AUDIO; do adb shell pm grant "$PKG" android.permission.$p; done
 adb shell am start -W -n "$PKG/.MainActivity"
-sleep 25
+# The first load on a fresh emulator can be slow: wait for the site (or the offline page).
+release_loaded() { adb logcat -d -s ForYou:V | grep -qE "Loaded https://foryou-chat.pages.dev/|offline page"; }
+wait_for 90 release_loaded
+sleep 3
 shot 01-release-home
 if adb shell dumpsys window | grep -E "mCurrentFocus" | grep -q "$PKG/"; then pass "app opens and stays open"; else fail "app did not stay open"; fi
 adb logcat -d -s ForYou:V > "$OUT/release-log.txt"
