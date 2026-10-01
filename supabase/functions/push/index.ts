@@ -73,7 +73,10 @@ async function accessToken(): Promise<string> {
 // One FCM message per phone. Data-only and high priority, so the app wakes up and shows it itself.
 // Returns the tokens FCM says no longer exist, so they can be forgotten.
 async function send(tokens: string[], data: Record<string, string>, ttlSeconds: number): Promise<string[]> {
-  if (!tokens.length) return [];
+  if (!tokens.length) {
+    console.log(`No phone to send ${data.type} to`);
+    return [];
+  }
   const bearer = await accessToken();
   const gone: string[] = [];
   await Promise.all(tokens.map(async (token) => {
@@ -82,11 +85,15 @@ async function send(tokens: string[], data: Record<string, string>, ttlSeconds: 
       headers: { 'content-type': 'application/json', authorization: `Bearer ${bearer}` },
       body: JSON.stringify({ message: { token, data, android: { priority: 'high', ttl: `${ttlSeconds}s` } } }),
     });
-    if (res.status === 404 || res.status === 400) {
-      // Only forget a token when FCM says the token itself is the problem, not the message.
-      const text = await res.text();
-      if (/UNREGISTERED|not a valid FCM registration token|registration token/i.test(text)) gone.push(token);
+    if (res.ok) {
+      console.log(`FCM accepted ${data.type} (${res.status})`);
+      return;
     }
+    // What FCM said, for the function logs (never the phone's token).
+    const text = await res.text();
+    console.error(`FCM refused ${data.type} (${res.status}): ${text.slice(0, 500)}`);
+    // Only forget a token when FCM says the token itself is the problem, not the message.
+    if ((res.status === 404 || res.status === 400) && /UNREGISTERED|not a valid FCM registration token/i.test(text)) gone.push(token);
   }));
   return gone;
 }
