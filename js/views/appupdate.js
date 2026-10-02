@@ -1,7 +1,10 @@
 // Updates for the Android app. The app finds a newer version itself (Updater.java, from 1.1.0); 1.0.0
 // can't, so for it the newest version is read from app/android.json on this website. A pop-up says
 // the version on the phone will no longer be supported. Update closes it straight away and starts the
-// update, and the chat list shows how it's going instead of the "Update available" banner.
+// update, and the chat list shows how it's going instead of the "Update available" banner. After
+// Update is pressed, neither the pop-up nor the banner comes back for that version for an hour, even
+// if the app is closed and opened again, so there's time to finish installing it. Settings still has
+// the Update button for anyone who wants to try again sooner.
 import { inAndroidApp, androidInfo, androidStartUpdate, androidCheckUpdate, androidCanSelfUpdate } from '../lib/android.js';
 import { openModal, closeModal, toast } from '../lib/ui.js';
 import { escapeHtml } from '../lib/util.js';
@@ -14,6 +17,10 @@ let fromSite = null;   // the newest version on the website, for 1.0.0
 let watching = false;
 let retry = 0;
 let stall = 0;
+let pressedHere = null; // { code, at } when Update was pressed, in case the phone won't keep it
+
+const PRESSED_KEY = 'fy_update_pressed';
+const QUIET_MS = 60 * 60 * 1000;
 
 const changed = () => window.dispatchEvent(new Event('foryouapp'));
 const plainVersion = (v) => String(v || '').replace(/-debug$/, '');
@@ -25,6 +32,22 @@ export function availableUpdate() {
   if (info.update) return info.update;
   if (fromSite && Number(fromSite.versionCode) > Number(info.code || 0)) return fromSite;
   return null;
+}
+
+/** Was Update pressed for this version in the last hour? Then the pop-up and banner stay away. */
+export function updatePressed(u) {
+  if (!u) return false;
+  let p = pressedHere;
+  try { p = JSON.parse(localStorage.getItem(PRESSED_KEY) || 'null') || p; } catch { /* use pressedHere */ }
+  return !!p && Number(p.code) === Number(u.versionCode) && Date.now() - Number(p.at) < QUIET_MS;
+}
+
+function setPressed(u) {
+  pressedHere = u ? { code: Number(u.versionCode), at: Date.now() } : null;
+  try {
+    if (pressedHere) localStorage.setItem(PRESSED_KEY, JSON.stringify(pressedHere));
+    else localStorage.removeItem(PRESSED_KEY);
+  } catch { /* pressedHere still covers this visit */ }
 }
 
 /** How the update is going ({ stage, pct }), or null when none is under way. */
@@ -42,7 +65,9 @@ export function progressText(p) {
 /** Update pressed (pop-up, banner, Settings or Get the app). */
 export function startAppUpdate() {
   closeUpdatePopup();
-  if (!availableUpdate()) return;
+  const u = availableUpdate();
+  if (!u) return;
+  setPressed(u);
   if (androidCanSelfUpdate()) {
     onUpdateProgress('starting', 0);
     androidStartUpdate();
@@ -50,6 +75,7 @@ export function startAppUpdate() {
     // 1.0.0 can't install updates itself: the phone's browser downloads the new version instead.
     location.href = '/app/foryou.apk';
     toast('Downloading the new version. When it finishes, open it to install the update.', 7000);
+    changed();
   }
 }
 
@@ -64,11 +90,14 @@ export function onUpdateProgress(stage, pct = 0) {
   clearTimeout(stall);
   if (['error', 'idle', 'none'].includes(stage)) {
     progress = null;
-    if (stage === 'error') toast("Sorry, the update didn't download. Check your connection and try again.");
+    if (stage === 'error') {
+      setPressed(null); // the banner comes back so they can try again
+      toast("Sorry, the update didn't download. Check your connection and try again.");
+    }
   } else {
     progress = { stage, pct };
     // If nothing more is heard (for example "Allow from this source" was left off), show Update again.
-    if (stage !== 'confirm') stall = setTimeout(() => { progress = null; changed(); }, 90_000);
+    if (stage !== 'confirm') stall = setTimeout(() => { progress = null; setPressed(null); changed(); }, 90_000);
   }
   changed();
 }
@@ -92,7 +121,7 @@ async function loadFromSite() {
 
 function maybeShowPopup() {
   const u = availableUpdate();
-  if (!u || progress || shownFor === Number(u.versionCode)) return;
+  if (!u || progress || updatePressed(u) || shownFor === Number(u.versionCode)) return;
   // Never on top of another pop-up or a call: try again a little later.
   if (document.querySelector('#modal-root .modal') || isBusy()) {
     clearTimeout(retry);

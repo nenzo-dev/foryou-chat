@@ -6,7 +6,7 @@ import { watchSeen, statusOf } from '../lib/seen.js';
 import { createRoom, joinRoom } from '../lib/rooms.js';
 import { dateLobby } from '../lib/dates.js';
 import { inAndroidApp } from '../lib/android.js';
-import { availableUpdate, updateProgress, progressText, startAppUpdate } from './appupdate.js';
+import { availableUpdate, updatePressed, updateProgress, progressText, startAppUpdate } from './appupdate.js';
 import { initials, timeAgo, escapeHtml, debounce, cssColor } from '../lib/util.js';
 import { openModal, closeModal, toast, friendlyError } from '../lib/ui.js';
 import { ICON } from '../lib/icons.js';
@@ -65,11 +65,12 @@ export function mountChatList(root) {
   };
 
   // A newer version of the Android app (views/appupdate.js). Once Update is pressed, the banner gives
-  // way to a line that shows how the update is going.
+  // way to a line that shows how the update is going, and doesn't come back for an hour.
   function paintUpdate() {
     const box = root.querySelector('#cl-update');
     if (!box || !inAndroidApp()) return;
-    const u = availableUpdate();
+    const ready = availableUpdate();
+    const u = updatePressed(ready) ? null : ready;
     const p = updateProgress();
     const key = p ? `p:${p.stage}:${p.pct}` : u ? `u:${u.versionCode}` : '';
     if (box.dataset.key === key) return;
