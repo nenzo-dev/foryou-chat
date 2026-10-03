@@ -33,6 +33,18 @@ export async function mountSettings(root) {
       </div>
 
       <div class="settings-section">
+        <h4>Security</h4>
+        <div class="toggle-row">
+          <div>
+            <div class="label">Calculator lock</div>
+            <div class="hint">ForYou opens as a working calculator. Type your code and press = to get in. It goes back to the calculator as soon as you leave ForYou, even for a second. The code is kept on this phone or computer only.</div>
+          </div>
+          <label class="switch"><input type="checkbox" id="st-calc-lock" ${calcLockOn() ? 'checked' : ''}><span class="track"><span class="thumb"></span></span></label>
+        </div>
+        <button class="btn btn-ghost btn-sm ${calcLockOn() ? '' : 'hidden'}" id="st-calc-change" type="button">Change code</button>
+      </div>
+
+      <div class="settings-section">
         <h4>Public profile</h4>
         <label for="st-name">Name</label>
         <input id="st-name" value="${escapeHtml(me.full_name || '')}">
@@ -50,14 +62,6 @@ export async function mountSettings(root) {
           <div><div class="label">Show when I'm online</div><div class="hint">Lets people you chat with see "Online" / "Last seen".</div></div>
           <label class="switch"><input type="checkbox" id="st-show-online" ${me.prefs?.show_online !== false ? 'checked' : ''}><span class="track"><span class="thumb"></span></span></label>
         </div>
-        <div class="toggle-row">
-          <div>
-            <div class="label">Calculator lock</div>
-            <div class="hint">ForYou opens as a working calculator. Type your code and press = to get in. It goes back to the calculator as soon as you leave ForYou, even for a second. The code is kept on this phone or computer only.</div>
-          </div>
-          <label class="switch"><input type="checkbox" id="st-calc-lock" ${calcLockOn() ? 'checked' : ''}><span class="track"><span class="thumb"></span></span></label>
-        </div>
-        <button class="btn btn-ghost btn-sm ${calcLockOn() ? '' : 'hidden'}" id="st-calc-change" type="button">Change code</button>
       </div>
 
       <div class="settings-section">
