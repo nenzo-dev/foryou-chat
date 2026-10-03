@@ -10,6 +10,7 @@ import { availableUpdate, updatePressed, updateProgress, progressText, startAppU
 import { initials, timeAgo, escapeHtml, debounce, cssColor } from '../lib/util.js';
 import { openModal, closeModal, toast, friendlyError } from '../lib/ui.js';
 import { ICON } from '../lib/icons.js';
+import { nameOf, savedName } from '../lib/contacts.js';
 import { state } from '../state.js';
 
 let seenMap = {};
@@ -54,11 +55,14 @@ export function mountChatList(root) {
   countDates();
   paintUpdate();
   window.addEventListener('foryouapp', paintUpdate);
+  const onContacts = () => renderList(root.querySelector('#cl-search')?.value || '');
+  window.addEventListener('foryoucontacts', onContacts);
   const datesTimer = setInterval(countDates, 30000);
 
   return () => {
     clearInterval(datesTimer);
     window.removeEventListener('foryouapp', paintUpdate);
+    window.removeEventListener('foryoucontacts', onContacts);
     offs.forEach((off) => off());
     if (stopWatchingSeen) stopWatchingSeen();
     window.removeEventListener('hashchange', highlightActive);
@@ -110,7 +114,7 @@ export function mountChatList(root) {
       const [convs, myRooms] = await Promise.all([rpc('my_conversations'), rpc('my_rooms'), loadFollowUps()]);
       rows = [
         ...(convs || []).map((c) => ({
-          type: 'dm', id: c.id, otherId: c.other_id, name: c.other_name || c.other_username || 'Someone',
+          type: 'dm', id: c.id, otherId: c.other_id, ownName: c.other_name || c.other_username || 'Someone',
           avatarPath: c.other_avatar_path, avatarColor: c.other_avatar_color,
           lastAt: c.last_message_at, preview: c.last_message_preview, unread: c.unread,
         })),
@@ -145,7 +149,9 @@ export function mountChatList(root) {
     const listEl = root.querySelector('#cl-rows');
     if (!listEl) return;
     const q = String(filter || '').trim().toLowerCase();
-    const shown = q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows;
+    // A chat's name is your saved name for the person when you have one (lib/contacts.js).
+    for (const r of rows) if (r.type === 'dm') r.name = nameOf(r.otherId, r.ownName);
+    const shown = q ? rows.filter((r) => r.name.toLowerCase().includes(q) || (r.ownName || '').toLowerCase().includes(q)) : rows;
     if (!shown.length) {
       listEl.innerHTML = `<div class="list-empty"><p>${q ? 'No chats match your search.' : 'No chats yet. Tap + to start one.'}</p></div>`;
       return;
@@ -207,16 +213,21 @@ async function openNewChatModal() {
   input.addEventListener('input', debounce(() => {
     const q = input.value.trim().toLowerCase().replace(/^@/, '');
     if (!q) { paint(everyone); return; }
-    paint(everyone.filter((p) => (p.full_name || '').toLowerCase().includes(q) || (p.username || '').toLowerCase().includes(q)));
+    paint(everyone.filter((p) => [savedName(p.id), p.full_name, p.username].some((v) => (v || '').toLowerCase().includes(q))));
   }, 150));
 
   function paint(list) {
     if (!list.length) { result.innerHTML = '<p class="muted small">No one found.</p>'; return; }
-    result.innerHTML = list.map((p) => `
+    result.innerHTML = list.map((p) => {
+      const mine = savedName(p.id);
+      const shown = mine || p.full_name || p.username || 'Someone';
+      const sub = [p.username ? '@' + p.username : '', mine ? p.full_name : ''].filter(Boolean).join(' · ');
+      return `
       <div class="list-item" data-person="${escapeHtml(p.id)}" style="border-radius:12px">
-        <div class="avatar" style="background:${escapeHtml(p.avatar_color || '#3b82c4')}">${p.avatar_path ? `<img class="avatar" src="${escapeHtml(avatarUrl(p.avatar_path))}">` : escapeHtml(initials(p.full_name))}</div>
-        <div class="meta"><div class="name">${escapeHtml(p.full_name || p.username || 'Someone')}</div><div class="preview">${p.username ? '@' + escapeHtml(p.username) : ''}</div></div>
-      </div>`).join('');
+        <div class="avatar" style="background:${escapeHtml(p.avatar_color || '#3b82c4')}">${p.avatar_path ? `<img class="avatar" src="${escapeHtml(avatarUrl(p.avatar_path))}">` : escapeHtml(initials(shown))}</div>
+        <div class="meta"><div class="name">${escapeHtml(shown)}</div><div class="preview">${escapeHtml(sub)}</div></div>
+      </div>`;
+    }).join('');
     result.querySelectorAll('[data-person]').forEach((row) => row.addEventListener('click', async () => {
       try {
         const cid = await rpc('ensure_conversation', { p_other: row.dataset.person });

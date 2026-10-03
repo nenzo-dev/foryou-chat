@@ -27,9 +27,10 @@ export const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
 export const plural = (n, one, many) => `${n} ${n === 1 ? one : many || one + 's'}`;
 
 export function initials(name = '') {
-  const p = String(name || '').trim().split(/\s+/).filter(Boolean);
+  // First letter of the first and last word, skipping brackets and other symbols ("Cleo (roommate)" is CR).
+  const p = String(name || '').split(/\s+/).map((w) => (w.match(/[\p{L}\p{N}]/u) || [''])[0]).filter(Boolean);
   if (!p.length) return '?';
-  return ((p[0][0] || '') + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase();
+  return (p[0] + (p.length > 1 ? p[p.length - 1] : '')).toUpperCase();
 }
 
 export function userTimezone() {

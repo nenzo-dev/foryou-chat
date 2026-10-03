@@ -8,6 +8,7 @@ import { requestNotifyPermission, notifyPermission, notifySupported, notify } fr
 import { toast, showPane, openModal, closeModal } from './lib/ui.js';
 import { registerAndroidDevice, androidSignedOut } from './lib/android.js';
 import { initCalcLock } from './lib/calclock.js';
+import { loadContactNames, forgetContactNames, nameOf, savedName } from './lib/contacts.js';
 
 // The Android app reports how an update is going (Updater.java). The chat list follows it through
 // views/appupdate.js; the Update buttons in Settings and Get the app show it here.
@@ -92,6 +93,7 @@ function teardownSession() {
   if (offMsgNotify) { offMsgNotify(); offMsgNotify = null; }
   if (offRoomMsgNotify) { offRoomMsgNotify(); offRoomMsgNotify = null; }
   if (disposeThread) { try { disposeThread(); } catch { /* ignore */ } disposeThread = null; }
+  forgetContactNames();
 }
 
 function currentOpenThread() {
@@ -131,7 +133,7 @@ function wireMessageNotifications() {
     if (!row || payload.eventType !== 'INSERT' || row.sender_id === state.user.id) return;
     const open = currentOpenThread();
     if (open && open.type === 'dm' && open.id === row.conversation_id && document.visibilityState === 'visible') return;
-    const name = (await lookup('profiles', row.sender_id, 'full_name')) || 'New message';
+    const name = nameOf(row.sender_id, await lookup('profiles', row.sender_id, 'full_name'));
     announce(name, previewOf(row), 'foryou-dm-' + row.conversation_id, '#/chat/' + encodeURIComponent(row.conversation_id));
   });
   offRoomMsgNotify = onLive('room_messages', async (payload) => {
@@ -139,8 +141,9 @@ function wireMessageNotifications() {
     if (!row || payload.eventType !== 'INSERT' || row.sender_id === state.user.id) return;
     const open = currentOpenThread();
     if (open && open.type === 'room' && open.id === row.room_id && document.visibilityState === 'visible') return;
-    const [room, who] = await Promise.all([lookup('rooms', row.room_id, 'name'), lookup('profiles', row.sender_id, 'full_name')]);
-    announce(room || 'New group message', `${who ? who.split(' ')[0] + ': ' : ''}${previewOf(row)}`, 'foryou-room-' + row.room_id, '#/room/' + row.room_id);
+    const [room, own] = await Promise.all([lookup('rooms', row.room_id, 'name'), lookup('profiles', row.sender_id, 'full_name')]);
+    const who = savedName(row.sender_id) || (own || '').split(' ')[0];
+    announce(room || 'New group message', `${who ? who + ': ' : ''}${previewOf(row)}`, 'foryou-room-' + row.room_id, '#/room/' + row.room_id);
   });
 }
 
@@ -195,6 +198,7 @@ async function enterApp(user, knownProfile) {
   }
   state.profile = profile;
   if (profile.suspended) { renderSuspended(app); return; }
+  loadContactNames();
   buildShell();
   startLive();
   wireMessageNotifications();

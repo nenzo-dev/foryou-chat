@@ -9,6 +9,7 @@ import { mountThread } from '../lib/thread.js';
 import { startDirectCall } from './callui.js';
 import { openModal, closeModal } from '../lib/ui.js';
 import { ICON } from '../lib/icons.js';
+import { nameOf, savedName, openEditContact } from '../lib/contacts.js';
 import { state } from '../state.js';
 
 export async function mountChat(root, conversationId) {
@@ -26,14 +27,15 @@ export async function mountChat(root, conversationId) {
     root.innerHTML = `<div class="empty-state"><p>That person could not be found.</p></div>`;
     return () => {};
   }
-  const peerName = peer.full_name || peer.username || 'Someone';
+  // Your saved name for them when you have one (lib/contacts.js), else the name they chose.
+  const peerName = () => nameOf(peer.id, peer.full_name || peer.username);
 
   root.innerHTML = `
     <div class="thread-head">
       <button class="back-btn" id="ch-back" aria-label="Back">${ICON.back}</button>
       <div class="head-avatar" id="ch-avatar-wrap"><div class="avatar sm" id="ch-avatar"></div><span class="presence-dot hidden" id="ch-dot"></span></div>
       <button class="info" id="ch-info" type="button">
-        <span class="name">${escapeHtml(peerName)}</span>
+        <span class="name" id="ch-name">${escapeHtml(peerName())}</span>
         <span class="status" id="ch-status">&nbsp;</span>
       </button>
       <button class="head-btn" id="ch-call" title="Video call" aria-label="Video call">${ICON.video}</button>
@@ -42,18 +44,27 @@ export async function mountChat(root, conversationId) {
 
   paintAvatar(root.querySelector('#ch-avatar'), peer);
   root.querySelector('#ch-back').onclick = () => { location.hash = '#/'; };
-  root.querySelector('#ch-call').onclick = () => startDirectCall(peer);
+  root.querySelector('#ch-call').onclick = () => startDirectCall({ ...peer, full_name: peerName() });
   root.querySelector('#ch-info').onclick = () => showContactInfo(peer);
 
   const statusTimer = tickStatus();
 
   const thread = await mountThread(root.querySelector('#ch-thread'), {
     kind: 'dm', id: conversationId, folder: conversationId, me,
-    nameFor: (uid) => (uid === me ? 'You' : peerName),
+    nameFor: (uid) => (uid === me ? 'You' : peerName()),
     send: ({ body, attachment, replyTo }) => rpc('send_message', { p_conversation: conversationId, p_body: body, p_attachment: attachment || null, p_reply_to: replyTo || null }),
   });
 
-  return () => { thread.destroy(); clearInterval(statusTimer); };
+  // Saving them under another name (lib/contacts.js) shows straight away.
+  const onContacts = () => {
+    const el = root.querySelector('#ch-name');
+    if (el) el.textContent = peerName();
+    paintAvatar(root.querySelector('#ch-avatar'), peer);
+    if (thread.repaint) thread.repaint();
+  };
+  window.addEventListener('foryoucontacts', onContacts);
+
+  return () => { thread.destroy(); clearInterval(statusTimer); window.removeEventListener('foryoucontacts', onContacts); };
 
   function tickStatus() {
     const set = async () => {
@@ -76,18 +87,23 @@ export async function mountChat(root, conversationId) {
 
 function paintAvatar(el, person) {
   if (person.avatar_path) el.innerHTML = `<img src="${escapeHtml(avatarUrl(person.avatar_path))}" alt="">`;
-  else { el.style.background = person.avatar_color || '#3b82c4'; el.textContent = initials(person.full_name || person.username || '?'); }
+  else { el.style.background = person.avatar_color || '#3b82c4'; el.textContent = initials(nameOf(person.id, person.full_name || person.username || '?')); }
 }
 
 function showContactInfo(peer) {
+  const own = peer.full_name || peer.username || 'Someone';
+  const mine = savedName(peer.id);
   const modal = openModal(`
     <div class="profile-card">
       <div class="avatar xl" id="ci-avatar"></div>
-      <h3>${escapeHtml(peer.full_name || peer.username)}</h3>
+      <h3>${escapeHtml(mine || own)}</h3>
+      ${mine ? `<p class="muted small">Their name on ForYou: ${escapeHtml(own)}</p>` : ''}
       ${peer.username ? `<p class="muted small">@${escapeHtml(peer.username)}</p>` : ''}
       <p class="profile-bio ${peer.bio ? '' : 'muted'}">${peer.bio ? escapeHtml(peer.bio) : 'No bio yet.'}</p>
       <button class="btn btn-gold btn-block" id="ci-call">${ICON.video} Video call</button>
+      <button class="btn btn-ghost btn-block" style="margin-top:8px" id="ci-edit">${ICON.edit} Edit contact</button>
     </div>`);
   paintAvatar(modal.querySelector('#ci-avatar'), peer);
-  modal.querySelector('#ci-call').addEventListener('click', () => { closeModal(); startDirectCall(peer); });
+  modal.querySelector('#ci-call').addEventListener('click', () => { closeModal(); startDirectCall({ ...peer, full_name: mine || own }); });
+  modal.querySelector('#ci-edit').addEventListener('click', () => openEditContact(peer));
 }

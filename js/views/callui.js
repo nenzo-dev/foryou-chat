@@ -12,6 +12,7 @@ import { isPhone } from '../lib/callhealth.js';
 import { toast, friendlyError } from '../lib/ui.js';
 import { initials, duration, escapeHtml, pickColor, cssColor } from '../lib/util.js';
 import { ICON } from '../lib/icons.js';
+import { nameOf } from '../lib/contacts.js';
 import { inAndroidApp, androidIncomingCall, androidEndIncomingCall, androidInCall, androidTakePendingCall } from '../lib/android.js';
 import { state } from '../state.js';
 
@@ -93,7 +94,7 @@ export function handleRingEvent(payload) {
   } else if (payload.type === 'cancel') {
     if (incomingAlertEl && payload.roomKey === incomingAlertEl.dataset.roomKey) {
       dismissIncomingAlert();
-      notify('Missed video call', (payload.fromName || 'Someone') + ' tried to call you', 'foryou-missed-call');
+      notify('Missed video call', nameOf(payload.from, payload.fromName) + ' tried to call you', 'foryou-missed-call');
     }
   }
 }
@@ -103,9 +104,11 @@ function showIncomingAlert(payload) {
   // The custom two-tone ring (js/lib/ringtone.js) only plays while this tab is actually open and its
   // audio isn't suspended -- a real OS notification is what gets the phone's own ringtone/notification
   // sound and vibration to fire even when the app is backgrounded or another tab is in front.
-  if (inAndroidApp()) androidIncomingCall(payload.roomKey, payload.fromName || 'Someone');
-  else notify('Incoming video call', (payload.fromName || 'Someone') + ' is calling you', 'foryou-incoming-call');
-  const caller = { id: payload.from, full_name: payload.fromName || 'Someone', avatar_color: payload.fromAvatarColor, avatar_path: payload.fromAvatarPath };
+  // Your saved name for the caller when you have one (lib/contacts.js).
+  const callerName = nameOf(payload.from, payload.fromName);
+  if (inAndroidApp()) androidIncomingCall(payload.roomKey, callerName);
+  else notify('Incoming video call', callerName + ' is calling you', 'foryou-incoming-call');
+  const caller = { id: payload.from, full_name: callerName, avatar_color: payload.fromAvatarColor, avatar_path: payload.fromAvatarPath };
   incomingAlertEl = document.createElement('div');
   incomingAlertEl.className = 'call-overlay incoming';
   incomingAlertEl.dataset.roomKey = payload.roomKey;
@@ -204,7 +207,7 @@ export async function startDirectCall(peer) {
 
 export async function answerDirectCall(invite) {
   if (isBusy()) return;
-  await openDirectOverlay({ role: 'guest', roomKey: invite.roomKey, peer: { id: invite.from, full_name: invite.fromName, avatar_color: invite.fromAvatarColor, avatar_path: invite.fromAvatarPath } });
+  await openDirectOverlay({ role: 'guest', roomKey: invite.roomKey, peer: { id: invite.from, full_name: nameOf(invite.from, invite.fromName), avatar_color: invite.fromAvatarColor, avatar_path: invite.fromAvatarPath } });
 }
 
 async function openDirectOverlay({ role, roomKey, peer }) {
@@ -409,7 +412,7 @@ export async function startGroupCall(room) {
     grid.style.setProperty('--strip', String(Math.max(1, peers.length)));
     for (const p of peers) {
       let t = tiles.get(p.id);
-      if (!t) { t = makeTile({ id: p.id, name: p.name || 'Guest', person: {} }); tiles.set(p.id, t); grid.appendChild(t.el); }
+      if (!t) { t = makeTile({ id: p.id, name: nameOf(p.id, p.name || 'Guest'), person: {} }); tiles.set(p.id, t); grid.appendChild(t.el); }
       if (p.stream && t.stream !== p.stream) {
         t.stream = p.stream;
         playRemote(t.video, p.stream);
@@ -419,7 +422,7 @@ export async function startGroupCall(room) {
       t.el.classList.toggle('cam-off', !!(p.media && p.media.video === false));
       t.el.classList.toggle('mic-off', !!(p.media && p.media.audio === false));
       t.el.classList.toggle('connecting', p.state !== 'connected');
-      t.el.querySelector('.tag-name').textContent = p.name || 'Guest';
+      t.el.querySelector('.tag-name').textContent = nameOf(p.id, p.name || 'Guest');
     }
     const n = peers.length + 1;
     grid.dataset.count = String(Math.min(n, 9));

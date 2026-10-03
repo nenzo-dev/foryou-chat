@@ -3,7 +3,7 @@
 // still opens (even if stale) on a flaky connection. Network-first, not cache-first, so a returning
 // visitor is never permanently stuck on whatever was cached on their first visit -- bump CACHE's
 // version string whenever the deployed files change meaningfully.
-const CACHE = 'foryou-v8';
+const CACHE = 'foryou-v9';
 const CORE = ['./', 'index.html', 'css/style.css', 'js/app.js', 'js/config.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {

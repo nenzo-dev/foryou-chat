@@ -1,13 +1,14 @@
 // A group chat: the header (group name, members, group video call), a banner when people are already on
 // a call, and the shared thread (js/lib/thread.js) for history, sending, replies, reactions, editing and
 // deleting. The group owner can also remove anyone's message.
-import { supabase, avatarUrl } from '../lib/db.js';
+import { supabase, rpc, avatarUrl } from '../lib/db.js';
 import { escapeHtml, initials, pickColor, cssColor } from '../lib/util.js';
 import { mountThread } from '../lib/thread.js';
 import { roomPeople, sendRoomMessage, inviteLink, whatsappLink, resetInvite, leaveRoom, removeMember, deleteRoom, roomCalls, ROOM_FOLDER } from '../lib/rooms.js';
 import { startGroupCall } from './callui.js';
 import { toast, openModal, closeModal, friendlyError, choose } from '../lib/ui.js';
 import { ICON } from '../lib/icons.js';
+import { nameOf, openEditContact } from '../lib/contacts.js';
 import { state } from '../state.js';
 
 export async function mountRoom(root, roomId) {
@@ -41,11 +42,11 @@ export async function mountRoom(root, roomId) {
   let byId = Object.fromEntries((people || []).map((p) => [p.user_id, p]));
   paintStatus();
 
-  const nameFor = (uid) => (uid === me ? 'You' : (byId[uid] && byId[uid].full_name) || 'Someone');
+  const nameFor = (uid) => (uid === me ? 'You' : nameOf(uid, byId[uid] && byId[uid].full_name));
   const avatarFor = (uid) => {
     const p = byId[uid];
     if (p && p.avatar_path) return `<img class="avatar xs" src="${escapeHtml(avatarUrl(p.avatar_path))}" alt="">`;
-    return `<div class="avatar xs" style="background:${cssColor(p && p.avatar_color, pickColor(uid))}">${escapeHtml(initials((p && p.full_name) || '?'))}</div>`;
+    return `<div class="avatar xs" style="background:${cssColor(p && p.avatar_color, pickColor(uid))}">${escapeHtml(initials(nameOf(uid, (p && p.full_name) || '?')))}</div>`;
   };
 
   const thread = await mountThread(root.querySelector('#rm-thread'), {
@@ -55,8 +56,10 @@ export async function mountRoom(root, roomId) {
 
   const callBeat = setInterval(paintCallBanner, 15000);
   paintCallBanner();
+  const onContacts = () => thread.repaint && thread.repaint();
+  window.addEventListener('foryoucontacts', onContacts);
 
-  return () => { thread.destroy(); clearInterval(callBeat); };
+  return () => { thread.destroy(); clearInterval(callBeat); window.removeEventListener('foryoucontacts', onContacts); };
 
   function paintStatus() {
     const el = root.querySelector('#rm-status');
@@ -109,13 +112,25 @@ export async function mountRoom(root, roomId) {
     const membersEl = modal.querySelector('#ri-members');
     membersEl.innerHTML = (people || []).map((p) => {
       const online = p.last_seen && Date.now() - Date.parse(p.last_seen) < 90000;
+      const shown = p.user_id === me ? p.full_name : nameOf(p.user_id, p.full_name);
       return `
       <div class="member-row">
-        ${p.avatar_path ? `<img class="avatar sm" src="${escapeHtml(avatarUrl(p.avatar_path))}" alt="">` : `<div class="avatar sm" style="background:${cssColor(p.avatar_color, pickColor(p.user_id))}">${escapeHtml(initials(p.full_name))}</div>`}
-        <div class="meta"><div class="name">${escapeHtml(p.full_name)}${p.user_id === me ? ' <span class="muted">(you)</span>' : ''}${p.is_owner ? ` <span class="pill-gold">${ICON.crown} Owner</span>` : ''}</div><div class="status${online ? ' online' : ''}">${online ? 'Online' : ''}</div></div>
+        ${p.avatar_path ? `<img class="avatar sm" src="${escapeHtml(avatarUrl(p.avatar_path))}" alt="">` : `<div class="avatar sm" style="background:${cssColor(p.avatar_color, pickColor(p.user_id))}">${escapeHtml(initials(shown))}</div>`}
+        <div class="meta"${p.user_id === me ? '' : ` data-person="${escapeHtml(p.user_id)}" role="button" tabindex="0" style="cursor:pointer"`}><div class="name">${escapeHtml(shown)}${p.user_id === me ? ' <span class="muted">(you)</span>' : ''}${p.is_owner ? ` <span class="pill-gold">${ICON.crown} Owner</span>` : ''}</div><div class="status${online ? ' online' : ''}">${online ? 'Online' : ''}</div></div>
         ${isOwner && !p.is_owner ? `<button class="btn btn-plain btn-sm" data-remove="${escapeHtml(p.user_id)}">Remove</button>` : ''}
       </div>`;
     }).join('');
+    // Tap someone to message them or save them under your own name.
+    membersEl.querySelectorAll('[data-person]').forEach((row) => row.addEventListener('click', async () => {
+      const p = byId[row.dataset.person];
+      if (!p) return;
+      const pick = await choose({ title: nameOf(p.user_id, p.full_name), actions: [{ id: 'message', label: 'Message' }, { id: 'edit', label: 'Edit contact' }] });
+      if (pick === 'edit') openEditContact({ id: p.user_id, full_name: p.full_name, username: p.username });
+      else if (pick === 'message') {
+        try { location.hash = `#/chat/${encodeURIComponent(await rpc('ensure_conversation', { p_other: p.user_id }))}`; }
+        catch (e) { toast(friendlyError(e)); }
+      }
+    }));
     membersEl.querySelectorAll('[data-remove]').forEach((b) => b.addEventListener('click', async () => {
       try {
         await removeMember(roomId, b.dataset.remove);

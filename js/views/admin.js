@@ -1,4 +1,4 @@
-// Configurer-only: browse every account and suspend, unsuspend or delete them, and review pending appeals from
+// Configurer-only: browse every account and rename, suspend, unsuspend or delete them, and review pending appeals from
 // suspended accounts. Reachable at #/admin, linked only from Settings for accounts where is_configurer
 // is true -- but every RPC here is re-checked server-side (am_i_configurer()) regardless of how someone
 // reached this screen.
@@ -55,19 +55,47 @@ export async function mountAdmin(root) {
           <div class="name">${escapeHtml(u.full_name || u.username || u.email)}${u.is_configurer ? ' &#9733;' : ''}${u.suspended ? ' <span class="chip" style="color:var(--danger);border-color:var(--danger)">Suspended</span>' : ''}</div>
           <div class="status">${escapeHtml(u.email)}${u.username ? ' · @' + escapeHtml(u.username) : ''} · joined ${timeAgo(new Date(u.created_at).getTime())}</div>
           ${u.suspended && u.suspended_reason ? `<div class="status">Reason: ${escapeHtml(u.suspended_reason)}</div>` : ''}
-          ${u.is_configurer ? '' : `<div class="ad-actions">${u.suspended
+          <div class="ad-actions"><button class="btn btn-ghost btn-sm" data-rename="${escapeHtml(u.id)}" data-full="${escapeHtml(u.full_name || '')}" data-user="${escapeHtml(u.username || '')}">Edit name</button>
+            ${u.is_configurer ? '' : `${u.suspended
             ? `<button class="btn btn-ghost btn-sm" data-unsuspend="${escapeHtml(u.id)}">Unsuspend</button>`
             : `<button class="btn btn-ghost btn-sm" data-suspend="${escapeHtml(u.id)}" data-name="${escapeHtml(u.full_name || u.email)}">Suspend</button>`}
-            <button class="btn btn-danger btn-sm" data-delete="${escapeHtml(u.id)}" data-name="${escapeHtml(u.full_name || u.email)}">Delete</button></div>`}
+            <button class="btn btn-danger btn-sm" data-delete="${escapeHtml(u.id)}" data-name="${escapeHtml(u.full_name || u.email)}">Delete</button>`}</div>
         </div>
       </div>`).join('') || '<p class="muted">No accounts yet.</p>';
 
     content.querySelectorAll('[data-suspend]').forEach((b) => b.addEventListener('click', () => openSuspendModal(b.dataset.suspend, b.dataset.name)));
+    content.querySelectorAll('[data-rename]').forEach((b) => b.addEventListener('click', () => openRenameModal(b.dataset.rename, b.dataset.full, b.dataset.user)));
     content.querySelectorAll('[data-delete]').forEach((b) => b.addEventListener('click', () => openDeleteModal(b.dataset.delete, b.dataset.name)));
     content.querySelectorAll('[data-unsuspend]').forEach((b) => b.addEventListener('click', async () => {
       try { await rpc('admin_unsuspend_user', { p_user: b.dataset.unsuspend }); toast('Account unsuspended.'); render(); }
       catch (e) { toast(friendlyError(e)); }
     }));
+  }
+
+  // Changes the name and username everyone sees. The database checks the rules again (admin_rename_user).
+  function openRenameModal(userId, fullName, username) {
+    const modal = openModal(`
+      <h3>Edit name</h3>
+      <p class="muted small">Everyone on ForYou will see the new name.</p>
+      <label for="ad-rn-name">Name</label>
+      <input id="ad-rn-name" maxlength="60" value="${escapeHtml(fullName)}">
+      <label for="ad-rn-user">Username (optional)</label>
+      <input id="ad-rn-user" maxlength="24" autocapitalize="none" spellcheck="false" value="${escapeHtml(username)}">
+      <button class="btn btn-gold btn-block" style="margin-top:12px" id="ad-rn-save">Save</button>
+      <div id="ad-rn-msg" class="form-msg"></div>`);
+    modal.querySelector('#ad-rn-save').addEventListener('click', async () => {
+      const msg = modal.querySelector('#ad-rn-msg');
+      const name = modal.querySelector('#ad-rn-name').value.trim();
+      const user = modal.querySelector('#ad-rn-user').value.trim().toLowerCase().replace(/^@/, '');
+      if (!name) { msg.className = 'form-msg err'; msg.textContent = 'Enter a name.'; return; }
+      try {
+        await rpc('admin_rename_user', { p_user: userId, p_full_name: name, p_username: user || null });
+        if (userId === state.user.id) Object.assign(state.profile, { full_name: name, username: user || null });
+        toast('Name updated.');
+        closeModal();
+        render();
+      } catch (e) { msg.className = 'form-msg err'; msg.textContent = friendlyError(e); }
+    });
   }
 
   function openSuspendModal(userId, name) {

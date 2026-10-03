@@ -129,6 +129,14 @@ Deno.serve(async (req) => {
   const forget = async (gone: string[]) => {
     if (gone.length) await db.from('device_tokens').update({ fcm_token: null }).in('fcm_token', gone);
   };
+  // The name someone saved for a contact (contact_names, migration 12), so their phone shows it.
+  const savedNames = async (owners: string[], contact: string) => {
+    const out = new Map<string, string>();
+    if (!owners.length) return out;
+    const { data } = await db.from('contact_names').select('owner_id, name').eq('contact_id', contact).in('owner_id', owners);
+    for (const r of data || []) out.set(r.owner_id as string, r.name as string);
+    return out;
+  };
 
   try {
     if (body.type === 'call' || body.type === 'cancel') {
@@ -141,10 +149,11 @@ Deno.serve(async (req) => {
       if (!UUID.test(to) || !/^[0-9a-f]{32}$/.test(roomKey) || to === caller.id) return json({ error: 'Bad request' }, 400);
       const { data: me } = await db.from('profiles').select('full_name, avatar_color, avatar_path, suspended').eq('id', caller.id).single();
       if (!me || me.suspended) return json({ error: 'Not allowed' }, 403);
-      const tokens = await tokensOf([to]);
+      const [tokens, saved] = await Promise.all([tokensOf([to]), savedNames([to], caller.id)]);
+      const fromName = saved.get(to) || me.full_name || 'Someone';
       const data: Record<string, string> = body.type === 'call'
-        ? { type: 'call', roomKey, caller: caller.id, fromName: me.full_name || 'Someone', fromAvatarColor: me.avatar_color || '', fromAvatarPath: me.avatar_path || '' }
-        : { type: 'cancel', roomKey, caller: caller.id, fromName: me.full_name || 'Someone' };
+        ? { type: 'call', roomKey, caller: caller.id, fromName, fromAvatarColor: me.avatar_color || '', fromAvatarPath: me.avatar_path || '' }
+        : { type: 'cancel', roomKey, caller: caller.id, fromName };
       await forget(await send(tokens, data, body.type === 'call' ? 45 : 60));
       return json({ ok: true, phones: tokens.length });
     }
@@ -160,10 +169,11 @@ Deno.serve(async (req) => {
         const { data: c } = await db.from('conversations').select('user_a_id, user_b_id').eq('id', m.conversation_id).single();
         if (!c) return json({ skipped: 'not found' });
         const to = c.user_a_id === m.sender_id ? c.user_b_id : c.user_a_id;
-        const { data: from } = await db.from('profiles').select('full_name').eq('id', m.sender_id).single();
-        const tokens = await tokensOf([to]);
+        const [{ data: from }, tokens, saved] = await Promise.all([
+          db.from('profiles').select('full_name').eq('id', m.sender_id).single(), tokensOf([to]), savedNames([to], m.sender_id),
+        ]);
         await forget(await send(tokens, {
-          type: 'message', tag: `foryou-dm-${m.conversation_id}`, title: (from && from.full_name) || 'New message',
+          type: 'message', tag: `foryou-dm-${m.conversation_id}`, title: saved.get(to) || (from && from.full_name) || 'New message',
           body: preview(m), hash: `#/chat/${m.conversation_id}`,
         }, 3600));
         return json({ ok: true, phones: tokens.length });
@@ -176,12 +186,28 @@ Deno.serve(async (req) => {
           db.from('profiles').select('full_name').eq('id', m.sender_id).single(),
           db.from('room_members').select('user_id').eq('room_id', m.room_id).neq('user_id', m.sender_id).limit(200),
         ]);
-        const tokens = await tokensOf((members || []).map((r) => r.user_id as string));
-        await forget(await send(tokens, {
-          type: 'message', tag: `foryou-room-${m.room_id}`, title: (room && room.name) || 'New group message',
-          body: `${firstName(from && from.full_name)}: ${preview(m)}`, hash: `#/room/${m.room_id}`,
-        }, 3600));
-        return json({ ok: true, phones: tokens.length });
+        const users = (members || []).map((r) => r.user_id as string);
+        const saved = await savedNames(users, m.sender_id);
+        const { data: rows } = users.length
+          ? await db.from('device_tokens').select('user_id, fcm_token').in('user_id', users).not('fcm_token', 'is', null)
+          : { data: [] as { user_id: string; fcm_token: string }[] };
+        // People who saved the sender under their own name get that name; everyone else gets the first name.
+        const byName = new Map<string, Set<string>>();
+        for (const r of rows || []) {
+          const who = saved.get(r.user_id as string) || firstName(from && from.full_name);
+          if (!byName.has(who)) byName.set(who, new Set());
+          byName.get(who)!.add(r.fcm_token as string);
+        }
+        let phones = 0;
+        for (const [who, set] of byName) {
+          const tokens = [...set];
+          phones += tokens.length;
+          await forget(await send(tokens, {
+            type: 'message', tag: `foryou-room-${m.room_id}`, title: (room && room.name) || 'New group message',
+            body: `${who}: ${preview(m)}`, hash: `#/room/${m.room_id}`,
+          }, 3600));
+        }
+        return json({ ok: true, phones });
       }
     }
     return json({ error: 'Unknown request' }, 400);
