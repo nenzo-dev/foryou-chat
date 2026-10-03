@@ -1083,3 +1083,31 @@ label.agree a { color: var(--gold-2); }
 
 /* ---------- admin: actions on each account ---------- */
 .ad-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+/* ---------------------------------------------------------------- calculator lock (js/lib/calclock.js) */
+/* While locked, nothing of ForYou is drawn or reachable: only the calculator is on screen. */
+body.calc-locked > :not(#calc-lock) { visibility: hidden !important; }
+.calc {
+  position: fixed; inset: 0; z-index: 2147483000; background: #000; color: #fff;
+  display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
+  padding: calc(16px + var(--safe-top)) 18px calc(22px + env(safe-area-inset-bottom, 0px));
+  font-family: -apple-system, "Helvetica Neue", Roboto, Arial, sans-serif;
+  user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.calc[hidden] { display: none; }
+.calc-screen { flex: 1; width: 100%; max-width: 420px; min-height: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-end; padding: 0 8px 16px; overflow: hidden; }
+.calc-line { color: #a5a5a5; font-size: 22px; min-height: 28px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.calc-main { font-size: 78px; font-weight: 300; line-height: 1.05; letter-spacing: -1px; white-space: nowrap; max-width: 100%; }
+.calc-main.small { font-size: 56px; }
+.calc-main.smaller { font-size: 40px; }
+.calc-keys { width: 100%; max-width: 420px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.calc-key {
+  width: 100%; aspect-ratio: 1; max-height: 12vh; border: 0; border-radius: 999px; cursor: pointer;
+  font-family: inherit; font-size: 30px; font-weight: 400; color: #fff; background: #333; transition: filter .12s;
+}
+.calc-key.fn { background: #a5a5a5; color: #000; font-size: 26px; font-weight: 500; }
+.calc-key.op { background: #ff9f0a; font-size: 34px; }
+.calc-key:active { filter: brightness(1.4); }
+.calc-key.fn:active { filter: brightness(1.18); }
+.calc-key:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.calc-setup input { letter-spacing: .3em; }

@@ -85,6 +85,14 @@ final class Bridge {
         if (activity.isTrustedPage()) Notifier.cancelCall(activity);
     }
 
+    /** Calculator lock switched on or off: keep ForYou out of the recent-apps preview while it's on. */
+    @JavascriptInterface
+    public void setPrivacyScreen(boolean on) {
+        if (!activity.isTrustedPage()) return;
+        Store.putInt(activity, "privacyScreen", on ? 1 : 0);
+        activity.runOnUiThread(activity::applyPrivacyScreen);
+    }
+
     @JavascriptInterface
     public void setInCall(boolean on) {
         if (activity.isTrustedPage()) activity.setInCall(on);

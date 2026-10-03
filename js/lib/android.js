@@ -42,6 +42,8 @@ export const androidStartUpdate = () => call('startUpdate');
 export const androidCheckUpdate = () => call('checkUpdate');
 // 1.0.0 has no updater; the website offers it the new version to download instead.
 export const androidCanSelfUpdate = () => { const b = bridge(); return !!b && typeof b.startUpdate === 'function'; };
+// Calculator lock on: keep ForYou out of the recent-apps preview (Android app 1.3.0 and later).
+export const androidSetPrivacyScreen = (on) => call('setPrivacyScreen', !!on);
 // A call that reached the phone by push: { invite, action: 'accept' | 'show' }, or null.
 export function androidTakePendingCall() {
   try { const raw = call('takePendingCall'); return raw ? JSON.parse(raw) : null; } catch { return null; }

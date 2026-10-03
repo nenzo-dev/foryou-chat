@@ -1,9 +1,11 @@
 // Your profile (what other people see), the AI auto-reply toggle (off until you turn it on, with a
-// plain explanation of what it does), the configurer-only AI key form, notifications, and sign out.
+// plain explanation of what it does), the calculator lock, the configurer-only AI key form,
+// notifications, and sign out.
 import { supabase, rpc, avatarUrl, signOut } from '../lib/db.js';
 import { escapeHtml, initials, uid, readFileAsDataURL, formatBytes } from '../lib/util.js';
 import { notifySupported, notifyPermission, requestNotifyPermission } from '../lib/notify.js';
-import { toast, friendlyError } from '../lib/ui.js';
+import { toast, friendlyError, openModal, closeModal, choose } from '../lib/ui.js';
+import { calcLockOn, setCalcCode, turnOffCalcLock, validCode } from '../lib/calclock.js';
 import { ICON } from '../lib/icons.js';
 import { inAndroidApp, androidInfo } from '../lib/android.js';
 import { availableUpdate, startAppUpdate, checkForAppUpdate } from './appupdate.js';
@@ -48,6 +50,14 @@ export async function mountSettings(root) {
           <div><div class="label">Show when I'm online</div><div class="hint">Lets people you chat with see "Online" / "Last seen".</div></div>
           <label class="switch"><input type="checkbox" id="st-show-online" ${me.prefs?.show_online !== false ? 'checked' : ''}><span class="track"><span class="thumb"></span></span></label>
         </div>
+        <div class="toggle-row">
+          <div>
+            <div class="label">Calculator lock</div>
+            <div class="hint">ForYou opens as a working calculator. Type your code and press = to get in. It goes back to the calculator as soon as you leave ForYou, even for a second. The code is kept on this phone or computer only.</div>
+          </div>
+          <label class="switch"><input type="checkbox" id="st-calc-lock" ${calcLockOn() ? 'checked' : ''}><span class="track"><span class="thumb"></span></span></label>
+        </div>
+        <button class="btn btn-ghost btn-sm ${calcLockOn() ? '' : 'hidden'}" id="st-calc-change" type="button">Change code</button>
       </div>
 
       <div class="settings-section">
@@ -124,6 +134,8 @@ export async function mountSettings(root) {
     root.querySelector('#st-avatar-file').addEventListener('change', onAvatarChosen);
     root.querySelector('#st-save-profile').addEventListener('click', saveProfile);
     root.querySelector('#st-show-online').addEventListener('change', (e) => savePrefs({ show_online: e.target.checked }));
+    root.querySelector('#st-calc-lock').addEventListener('change', onCalcLockToggle);
+    root.querySelector('#st-calc-change').addEventListener('click', () => askForCode('Change your calculator code', 'Save new code'));
     root.querySelector('#st-ai-reply').addEventListener('change', (e) => saveAiReply(e.target.checked));
     root.querySelector('#st-notif-btn').addEventListener('click', enableNotifications);
     root.querySelector('#st-install').addEventListener('click', () => { location.hash = '#/install'; });
@@ -271,6 +283,69 @@ export async function mountSettings(root) {
       const cid = await rpc('ensure_conversation', { p_other: admin.id });
       location.hash = `#/chat/${encodeURIComponent(cid)}`;
     } catch (e) { toast(friendlyError(e)); }
+  }
+
+  // ---------------------------------------------------------------- calculator lock
+  async function onCalcLockToggle(e) {
+    const box = e.target;
+    if (box.checked) {
+      box.checked = await askForCode('Set a calculator code', 'Turn on the lock');
+    } else {
+      const pick = await choose({
+        title: 'Turn off the calculator lock?',
+        text: 'ForYou will open straight to your chats again on this device.',
+        actions: [{ id: 'off', label: 'Turn it off', danger: true }],
+      });
+      if (pick === 'off') { turnOffCalcLock(); toast('Calculator lock is off.'); } else box.checked = true;
+    }
+    paintCalcLock();
+  }
+
+  function paintCalcLock() {
+    const on = calcLockOn();
+    const box = root.querySelector('#st-calc-lock');
+    if (box) box.checked = on;
+    const change = root.querySelector('#st-calc-change');
+    if (change) change.classList.toggle('hidden', !on);
+  }
+
+  /** The code form. Resolves true once a code is saved, false if it's closed first. */
+  function askForCode(title, button) {
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (ok) => { if (done) return; done = true; closeModal(); paintCalcLock(); resolve(ok); };
+      const modal = openModal(`
+        <div class="calc-setup">
+          <h3>${title}</h3>
+          <p class="muted small">Use 4 to 12 digits. To open ForYou, type the code on the calculator and press =.</p>
+          <label for="cl-code">Code</label>
+          <input id="cl-code" type="password" inputmode="numeric" autocomplete="off" maxlength="12">
+          <label for="cl-code2">Type it again</label>
+          <input id="cl-code2" type="password" inputmode="numeric" autocomplete="off" maxlength="12">
+          <p class="muted small">If you forget it, ForYou can't be opened on this device until you clear its data (site data in your browser, or storage in the Android app's settings). That signs you out here, but your account and messages are kept.</p>
+          <button class="btn btn-gold btn-block" id="cl-save" type="button">${button}</button>
+          <div class="form-msg" id="cl-msg"></div>
+        </div>`);
+      document.getElementById('modal-close').addEventListener('click', () => finish(false));
+      const backdrop = document.getElementById('modal-backdrop');
+      backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) finish(false); });
+      const msg = modal.querySelector('#cl-msg');
+      const fail = (text) => { msg.className = 'form-msg err'; msg.textContent = text; };
+      modal.querySelector('#cl-code').focus();
+      modal.querySelector('#cl-save').addEventListener('click', async () => {
+        const a = modal.querySelector('#cl-code').value.trim();
+        const b = modal.querySelector('#cl-code2').value.trim();
+        if (!validCode(a)) return fail('Use 4 to 12 digits, numbers only.');
+        if (a !== b) return fail("The two codes don't match.");
+        const btn = modal.querySelector('#cl-save');
+        btn.disabled = true;
+        const ok = await setCalcCode(a).catch(() => false);
+        btn.disabled = false;
+        if (!ok) return fail("Sorry, we ran into an error. It's not you, it's us. Please try again in a moment.");
+        toast('Calculator lock is on. Leave ForYou and come back to see it.', 4000);
+        finish(true);
+      });
+    });
   }
 
   async function enableNotifications() {

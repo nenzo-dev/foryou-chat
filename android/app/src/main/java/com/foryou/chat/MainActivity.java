@@ -80,6 +80,7 @@ public class MainActivity extends Activity {
         web = new WebView(this);
         web.setBackgroundColor(0xFF07070A);
         setContentView(web);
+        applyPrivacyScreen();
 
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
@@ -206,6 +207,23 @@ public class MainActivity extends Activity {
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
         } else {
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+        }
+    }
+
+    /**
+     * Calculator lock on (js/lib/calclock.js): keep ForYou out of the recent-apps preview, which is
+     * captured before the page has time to switch to the calculator. Android 13 and later just leave
+     * the preview out; older versions can only do it by blocking screenshots of ForYou too.
+     */
+    @SuppressWarnings("deprecation")
+    void applyPrivacyScreen() {
+        boolean on = Store.getInt(this, "privacyScreen", 0) == 1;
+        if (Build.VERSION.SDK_INT >= 33) {
+            setRecentsScreenshotEnabled(!on);
+        } else if (on) {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        } else {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
         }
     }
 
@@ -490,6 +508,14 @@ public class MainActivity extends Activity {
         // app is out of sight. When the system closes it, InboxJob checks for messages instead.
         visible = false;
         super.onPause();
+    }
+
+    @Override
+    protected void onStop() {
+        // Out of sight (another app, the home screen, the screen off): with the calculator lock on,
+        // the page goes back to the calculator now rather than waiting to notice it's hidden.
+        runJs("window.__foryouLock&&window.__foryouLock()");
+        super.onStop();
     }
 
     @Override

@@ -7,6 +7,7 @@ import { startRingListener, stopRingListener } from './lib/ring.js';
 import { requestNotifyPermission, notifyPermission, notifySupported, notify } from './lib/notify.js';
 import { toast, showPane, openModal, closeModal } from './lib/ui.js';
 import { registerAndroidDevice, androidSignedOut } from './lib/android.js';
+import { initCalcLock } from './lib/calclock.js';
 
 // The Android app reports how an update is going (Updater.java). The chat list follows it through
 // views/appupdate.js; the Update buttons in Settings and Get the app show it here.
@@ -39,6 +40,9 @@ import { renderSuspended } from './views/suspended.js';
 import { mountLegal, openLegalSheet } from './views/legal.js';
 import { handleRingEvent, checkAndroidPendingCall } from './views/callui.js';
 import { watchAppUpdate, onUpdateProgress } from './views/appupdate.js';
+
+// Before anything is drawn: with the calculator lock on, ForYou opens to the calculator (lib/calclock.js).
+initCalcLock();
 
 const app = document.getElementById('app');
 let disposeThread = null;
